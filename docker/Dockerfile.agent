@@ -1,0 +1,21 @@
+FROM gcc:14 as builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y cmake
+
+COPY CMakeLists.txt .
+COPY include/ include/
+COPY src/ src/
+
+RUN mkdir build && cd build && cmake .. && cmake --build .
+
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y libstdc++6 && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /app/build/log_agent /app/log_agent
+
+CMD ["./log_agent"]

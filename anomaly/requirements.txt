@@ -1,0 +1,7 @@
+better-sqlite3==11.7.0
+flask==3.1.0
+requests==2.32.0
+scikit-learn==1.6.0
+numpy==2.2.0
+pandas==2.2.0
+python-dotenv==1.0.0

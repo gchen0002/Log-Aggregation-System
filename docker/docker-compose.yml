@@ -1,0 +1,72 @@
+services:
+  agent:
+    build:
+      context: ../agent
+      dockerfile: ../docker/Dockerfile.agent
+    volumes:
+      - ../data/logs:/var/log/app
+    depends_on:
+      - queue
+    networks:
+      - log-network
+
+  queue:
+    build:
+      context: ../queue
+      dockerfile: ../docker/Dockerfile.queue
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../data/queue:/data
+    networks:
+      - log-network
+
+  api:
+    build:
+      context: ../api
+      dockerfile: ../docker/Dockerfile.api
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../data/db:/app/data
+    depends_on:
+      - queue
+    networks:
+      - log-network
+    environment:
+      - NODE_ENV=production
+      - QUEUE_URL=http://queue:8081
+      - DB_PATH=/app/data/logs.db
+
+  anomaly:
+    build:
+      context: ../anomaly
+      dockerfile: ../docker/Dockerfile.anomaly
+    depends_on:
+      - api
+    networks:
+      - log-network
+    environment:
+      - API_URL=http://api:3000
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../docker/Dockerfile.frontend
+    ports:
+      - "3001:3000"
+    depends_on:
+      - api
+    networks:
+      - log-network
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:3000
+
+networks:
+  log-network:
+    driver: bridge
+
+volumes:
+  logs:
+  queue:
+  db:
