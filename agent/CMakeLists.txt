@@ -19,6 +19,7 @@ FetchContent_MakeAvailable(json)
 # TODO: Change back to executable once all files are implemented
 add_library(log_agent_lib STATIC
     src/log_parser.cpp
+    src/batcher.cpp
 )
 
 # Uncomment when main.cpp exists:

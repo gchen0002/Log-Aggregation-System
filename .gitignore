@@ -86,7 +86,8 @@ temp/
 # Package archives
 *.tar.gz
 *.zip
-
+#tool caches
+.cache/
 
 AGENTS.md
 .opencode/

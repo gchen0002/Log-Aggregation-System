@@ -39,7 +39,7 @@ namespace {
 
 std::optional<LogEntry> LogParser::parse(const std::string& line) const {
     // Skip empty lines
-    if (line.empty() || std::all_of(line.begin(), line.end(), ::isspace)) {
+    if (line.empty() || std::all_of(line.begin(), line.end(), [](unsigned char c) { return std::isspace(c); })) {
         return std::nullopt;
     }
     
@@ -193,7 +193,11 @@ std::string LogParser::detectLevel(std::string_view line) {
 
 std::chrono::system_clock::time_point LogParser::parseTimestamp(const std::string& ts) {
     // Check for Unix timestamp (all digits)
-    if (!ts.empty() && std::all_of(ts.begin(), ts.end(), ::isdigit)) {
+    if (!ts.empty() && std::all_of(ts.begin(), ts.end(), [](unsigned char c) { return std::isdigit(c); })) {
+        // Validate length to prevent overflow/performance issues
+        if (ts.length() > 20) {
+            return std::chrono::system_clock::now();
+        }
         try {
             long long timestamp = std::stoll(ts);
             if (ts.length() > 10) {
@@ -254,8 +258,12 @@ std::chrono::system_clock::time_point LogParser::parseTimestamp(const std::strin
             while (msStr.length() < 3) msStr += '0';
             if (msStr.length() > 3) msStr = msStr.substr(0, 3);
             
-            int ms = std::stoi(msStr);
-            tp += std::chrono::milliseconds(ms);
+            try {
+                int ms = std::stoi(msStr);
+                tp += std::chrono::milliseconds(ms);
+            } catch (...) {
+                // Ignore milliseconds on parse failure
+            }
         }
     }
     

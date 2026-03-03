@@ -8,6 +8,7 @@
 #include <thread>
 #include <atomic>
 #include <functional>
+#include <chrono>
 
 namespace log_agent {
 
@@ -19,6 +20,7 @@ public:
     ~Batcher();
     
     void add(const std::string& item);
+    void add(std::string&& item);
     void flush();
     
 private:
@@ -32,7 +34,7 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::thread flusher_thread_;
-    std::atomic<bool> running_{false};
+    std::atomic<bool> running_{true};
 };
 
 }  // namespace log_agent
