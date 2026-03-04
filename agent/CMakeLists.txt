@@ -20,6 +20,7 @@ FetchContent_MakeAvailable(json)
 add_library(log_agent_lib STATIC
     src/log_parser.cpp
     src/batcher.cpp
+    src/file_tailer.cpp
 )
 
 # Uncomment when main.cpp exists:
