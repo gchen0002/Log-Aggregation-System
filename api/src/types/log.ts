@@ -22,3 +22,36 @@ export interface LogStats {
   byLevel: Record<string, number>;
   bySource: Record<string, number>;
 }
+
+export interface Alert {
+  id: string;
+  logId: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  message: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
+  acknowledged: boolean;
+}
+
+export interface AlertFilter {
+  severity?: string;
+  acknowledged?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AlertStats {
+  total: number;
+  bySeverity: Record<string, number>;
+  unacknowledged: number;
+}
+
+export interface QueueMessage {
+  id: number;
+  content: string;
+}
+
+export interface QueueStats {
+  pending: number;
+  total: number;
+}
