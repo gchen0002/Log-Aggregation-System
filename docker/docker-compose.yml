@@ -42,12 +42,19 @@ services:
     build:
       context: ../anomaly
       dockerfile: ../docker/Dockerfile.anomaly
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../data/db:/app/data
     depends_on:
       - api
     networks:
       - log-network
     environment:
-      - API_URL=http://api:3000
+      - DB_PATH=/app/data/logs.db
+      - MODEL_PATH=/app/data/anomaly_model.pkl
+      - POLL_INTERVAL_SECONDS=30
+      - LOG_LEVEL=INFO
 
   frontend:
     build:
