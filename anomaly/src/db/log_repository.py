@@ -38,6 +38,19 @@ class LogRepository:
 
     def _ensure_state_table(self) -> None:
         with self.db.get_cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS logs (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    raw TEXT
+                )
+                """
+            )
+        with self.db.get_cursor() as cursor:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS anomaly_state (
                     key TEXT PRIMARY KEY,
@@ -153,7 +166,7 @@ class LogRepository:
                     """,
                     (log_id, datetime.utcnow().isoformat()),
                 )
-            self.db.connection.commit()
+        self.db.commit()
 
     def get_volume_stats(self, hours: float = 24.0) -> dict[str, Any]:
         since = datetime.utcnow() - timedelta(hours=hours)

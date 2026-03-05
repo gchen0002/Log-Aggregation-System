@@ -92,3 +92,7 @@ temp/
 AGENTS.md
 .opencode/
 README.md
+
+start-local.bat
+stop-local.bat
+scripts/

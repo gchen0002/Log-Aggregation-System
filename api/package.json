@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src/**/*.ts",
-    "test": "jest"
+    "test": "jest",
+    "seed": "ts-node-dev --transpile-only scripts/seed.ts",
+    "seed:prod": "node dist/scripts/seed.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

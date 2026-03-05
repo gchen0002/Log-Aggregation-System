@@ -41,6 +41,24 @@ class AlertRepository:
 
     def __init__(self, db: Database) -> None:
         self.db = db
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        with self.db.get_cursor() as cursor:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id TEXT PRIMARY KEY,
+                    log_id TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details TEXT,
+                    created_at TEXT NOT NULL,
+                    acknowledged BOOLEAN DEFAULT 0
+                )
+                """
+            )
+        self.db.commit()
 
     def create(
         self,
@@ -78,7 +96,7 @@ class AlertRepository:
                     1 if alert.acknowledged else 0,
                 ),
             )
-            self.db.connection.commit()
+        self.db.commit()
 
         logger.info(
             "alert_created",
@@ -135,8 +153,9 @@ class AlertRepository:
                 "UPDATE alerts SET acknowledged = 1 WHERE id = ?",
                 (alert_id,),
             )
-            self.db.connection.commit()
-            return cursor.rowcount > 0
+            updated = cursor.rowcount > 0
+        self.db.commit()
+        return updated
 
     def count_unacknowledged(self, severity: str | None = None) -> int:
         if severity:

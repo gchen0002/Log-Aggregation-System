@@ -12,12 +12,12 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    db_path: str = "/app/data/logs.db"
+    db_path: str = "./data/logs.db"
     poll_interval_seconds: float = 30.0
     batch_size: int = 1000
     error_rate_threshold: float = 10.0
     volume_spike_std: float = 3.0
-    model_path: str = "/app/data/anomaly_model.pkl"
+    model_path: str = "./data/anomaly_model.pkl"
     min_training_samples: int = 100
     log_level: str = "INFO"
     contamination_rate: float = 0.05

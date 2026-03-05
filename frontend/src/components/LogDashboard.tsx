@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import LogSearch from './LogSearch';
 import LogChart from './LogChart';
 import LogTable from './LogTable';
@@ -13,18 +13,28 @@ interface LogEntry {
   timestamp: string;
 }
 
+interface LogStats {
+  total: number;
+  byLevel: Record<string, number>;
+  bySource: Record<string, number>;
+}
+
 export default function LogDashboard() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [stats, setStats] = useState({ total: 0, byLevel: {}, bySource: {} });
+  const [stats, setStats] = useState<LogStats>({
+    total: 0,
+    byLevel: {},
+    bySource: {},
+  });
   const [loading, setLoading] = useState(false);
 
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-  const searchLogs = async (query: string, filters: Record<string, string>) => {
+  const searchLogs = useCallback(async (query: string, filters: Record<string, string>) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ q: query, ...filters });
-      const res = await fetch(`${API_URL}/api/logs?${params}`);
+      const res = await fetch(`${apiUrl}/api/logs?${params}`);
       const data = await res.json();
       setLogs(data);
     } catch (error) {
@@ -32,15 +42,15 @@ export default function LogDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [apiUrl]);
 
   useEffect(() => {
-    searchLogs('', {});
-    fetch(`${API_URL}/api/logs/stats`)
+    void searchLogs('', {});
+    fetch(`${apiUrl}/api/logs/stats`)
       .then((res) => res.json())
       .then(setStats)
       .catch(console.error);
-  }, []);
+  }, [apiUrl, searchLogs]);
 
   return (
     <div className="space-y-6">
