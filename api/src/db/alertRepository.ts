@@ -40,7 +40,7 @@ export class AlertRepository {
       alert.message,
       alert.details ? this.safeStringify(alert.details) : null,
       alert.createdAt,
-      alert.acknowledged ? 1 : 0
+      alert.acknowledged ? 1 : 0,
     );
   }
 
@@ -49,6 +49,18 @@ export class AlertRepository {
     const values: (string | number)[] = [];
     const countValues: (string | number)[] = [];
 
+    if (filter.q) {
+      conditions.push('instr(lower(message),lower(?))>0');
+      values.push(filter.q);
+      countValues.push(filter.q);
+    }
+    if (filter.source) {
+      conditions.push(
+        "CASE WHEN json_valid(details) THEN COALESCE(json_extract(details,'$.source'),json_extract(details,'$.log_source')) END = ?",
+      );
+      values.push(filter.source);
+      countValues.push(filter.source);
+    }
     if (filter.severity) {
       conditions.push('severity = ?');
       values.push(filter.severity);
@@ -62,14 +74,14 @@ export class AlertRepository {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
+
     const countQuery = `SELECT COUNT(*) as total FROM alerts ${whereClause}`;
     const countResult = this.db.prepare(countQuery).get(...countValues) as { total: number };
     const total = countResult?.total || 0;
 
     const limit = Math.min(Math.max(filter.limit || 50, 1), 1000);
     const offset = Math.max(filter.offset || 0, 0);
-    
+
     const query = `
       SELECT id, log_id, severity, message, details, created_at, acknowledged
       FROM alerts
@@ -77,9 +89,9 @@ export class AlertRepository {
       ORDER BY created_at DESC
       LIMIT ? OFFSET ?
     `;
-    
+
     values.push(limit, offset);
-    
+
     const rows = this.db.prepare(query).all(...values) as Array<{
       id: string;
       log_id: string;
@@ -90,31 +102,35 @@ export class AlertRepository {
       acknowledged: number;
     }>;
 
-    const alerts: Alert[] = rows.map(row => ({
+    const alerts: Alert[] = rows.map((row) => ({
       id: row.id,
       logId: row.log_id,
       severity: row.severity as Alert['severity'],
       message: row.message,
       details: this.safeParseJson(row.details),
       createdAt: row.created_at,
-      acknowledged: Boolean(row.acknowledged)
+      acknowledged: Boolean(row.acknowledged),
     }));
 
     return { alerts, total };
   }
 
   findById(id: string): Alert | null {
-    const row = this.db.prepare(
-      'SELECT id, log_id, severity, message, details, created_at, acknowledged FROM alerts WHERE id = ?'
-    ).get(id) as {
-      id: string;
-      log_id: string;
-      severity: string;
-      message: string;
-      details: string | null;
-      created_at: string;
-      acknowledged: number;
-    } | undefined;
+    const row = this.db
+      .prepare(
+        'SELECT id, log_id, severity, message, details, created_at, acknowledged FROM alerts WHERE id = ?',
+      )
+      .get(id) as
+      | {
+          id: string;
+          log_id: string;
+          severity: string;
+          message: string;
+          details: string | null;
+          created_at: string;
+          acknowledged: number;
+        }
+      | undefined;
 
     if (!row) return null;
 
@@ -125,29 +141,27 @@ export class AlertRepository {
       message: row.message,
       details: this.safeParseJson(row.details),
       createdAt: row.created_at,
-      acknowledged: Boolean(row.acknowledged)
+      acknowledged: Boolean(row.acknowledged),
     };
   }
 
   acknowledge(id: string): boolean {
-    const result = this.db.prepare(
-      'UPDATE alerts SET acknowledged = 1 WHERE id = ?'
-    ).run(id);
+    const result = this.db.prepare('UPDATE alerts SET acknowledged = 1 WHERE id = ?').run(id);
     return result.changes > 0;
   }
 
   getStats(): AlertStats {
-    const totalResult = this.db.prepare(
-      'SELECT COUNT(*) as count FROM alerts'
-    ).get() as { count: number };
-    
-    const severityStats = this.db.prepare(
-      'SELECT severity, COUNT(*) as count FROM alerts GROUP BY severity'
-    ).all() as Array<{ severity: string; count: number }>;
-    
-    const unacknowledgedResult = this.db.prepare(
-      'SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0'
-    ).get() as { count: number };
+    const totalResult = this.db.prepare('SELECT COUNT(*) as count FROM alerts').get() as {
+      count: number;
+    };
+
+    const severityStats = this.db
+      .prepare('SELECT severity, COUNT(*) as count FROM alerts GROUP BY severity')
+      .all() as Array<{ severity: string; count: number }>;
+
+    const unacknowledgedResult = this.db
+      .prepare('SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0')
+      .get() as { count: number };
 
     const bySeverity: Record<string, number> = {};
     for (const row of severityStats) {
@@ -157,25 +171,32 @@ export class AlertRepository {
     return {
       total: totalResult.count,
       bySeverity,
-      unacknowledged: unacknowledgedResult.count
+      openBySeverity: Object.fromEntries(
+        (
+          this.db
+            .prepare(
+              'SELECT severity,COUNT(*) count FROM alerts WHERE acknowledged=0 GROUP BY severity',
+            )
+            .all() as { severity: string; count: number }[]
+        ).map((row) => [row.severity, row.count]),
+      ),
+      unacknowledged: unacknowledgedResult.count,
     };
   }
 
   deleteOldAlerts(days: number): number {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    
-    const result = this.db.prepare(
-      'DELETE FROM alerts WHERE created_at < ? AND acknowledged = 1'
-    ).run(cutoff);
-    
+
+    const result = this.db
+      .prepare('DELETE FROM alerts WHERE created_at < ? AND acknowledged = 1')
+      .run(cutoff);
+
     return result.changes;
   }
 
   deleteAcknowledged(): number {
-    const result = this.db.prepare(
-      'DELETE FROM alerts WHERE acknowledged = 1'
-    ).run();
-    
+    const result = this.db.prepare('DELETE FROM alerts WHERE acknowledged = 1').run();
+
     return result.changes;
   }
 
@@ -183,13 +204,15 @@ export class AlertRepository {
     // Escape LIKE wildcards and build pattern
     const escapedPattern = pattern.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const likePattern = `%${escapedPattern}%`;
-    const row = this.db.prepare(
-      `SELECT id FROM alerts 
+    const row = this.db
+      .prepare(
+        `SELECT id FROM alerts 
        WHERE severity = ? AND acknowledged = 0 AND created_at >= ? 
        AND message LIKE ? ESCAPE '\\'
-       LIMIT 1`
-    ).get(severity, since, likePattern) as { id: string } | undefined;
-    
+       LIMIT 1`,
+      )
+      .get(severity, since, likePattern) as { id: string } | undefined;
+
     return row ? this.findById(row.id) : null;
   }
 

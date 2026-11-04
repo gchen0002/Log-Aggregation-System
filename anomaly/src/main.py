@@ -110,17 +110,6 @@ async def lifespan(app: FastAPI):
         detectors=detectors,
     )
 
-    def signal_handler(signum, frame):
-        logger.info("shutdown_signal_received", signal=signum)
-        if worker:
-            worker.stop()
-        if db:
-            db.close()
-        sys.exit(0)
-
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
-
     worker.start()
     logger.info("service_started")
 

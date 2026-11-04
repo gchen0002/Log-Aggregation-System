@@ -65,27 +65,18 @@ class LogRepository:
         since_id: str | None,
         limit: int = 1000,
     ) -> list[LogEntry]:
+        position = 0
         if since_id:
-            rows = self.db.execute(
-                """
-                SELECT id, timestamp, level, source, message, raw
-                FROM logs
-                WHERE id > ?
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (since_id, limit),
-            ).fetchall()
-        else:
-            rows = self.db.execute(
-                """
-                SELECT id, timestamp, level, source, message, raw
-                FROM logs
-                ORDER BY id ASC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+            row = self.db.execute("SELECT rowid AS position FROM logs WHERE id = ?", (since_id,)).fetchone()
+            if row:
+                position = row["position"]
+            else:
+                saved = self.db.execute("SELECT value FROM anomaly_state WHERE key = 'last_processed_rowid'").fetchone()
+                position = int(saved["value"]) if saved else 0
+        rows = self.db.execute(
+            "SELECT id, timestamp, level, source, message, raw FROM logs WHERE rowid > ? ORDER BY rowid ASC LIMIT ?",
+            (position, limit),
+        ).fetchall()
 
         return [LogEntry(**dict(row)) for row in rows]
 
@@ -157,7 +148,7 @@ class LogRepository:
     def set_last_processed_id(self, log_id: str | None) -> None:
         with self.db.get_cursor() as cursor:
             if log_id is None:
-                cursor.execute("DELETE FROM anomaly_state WHERE key = 'last_processed_id'")
+                cursor.execute("DELETE FROM anomaly_state WHERE key IN ('last_processed_id', 'last_processed_rowid')")
             else:
                 cursor.execute(
                     """
@@ -166,6 +157,9 @@ class LogRepository:
                     """,
                     (log_id, datetime.utcnow().isoformat()),
                 )
+                row = cursor.execute("SELECT rowid AS position FROM logs WHERE id = ?", (log_id,)).fetchone()
+                if row:
+                    cursor.execute("INSERT OR REPLACE INTO anomaly_state VALUES ('last_processed_rowid', ?, ?)", (str(row["position"]), datetime.utcnow().isoformat()))
         self.db.commit()
 
     def get_volume_stats(self, hours: float = 24.0) -> dict[str, Any]:

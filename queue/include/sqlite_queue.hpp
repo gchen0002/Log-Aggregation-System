@@ -1,39 +1,19 @@
 #pragma once
-
-#include <string>
-#include <vector>
-#include <optional>
-#include <memory>
+#include "../../native/include/common.hpp"
+#include <sqlite3.h>
 #include <mutex>
-
-struct sqlite3;
-
 namespace log_queue {
-
 class SqliteQueue {
+  sqlite3* db_ = nullptr;
+  std::mutex mutex_;
+  unsigned capacity_, lease_;
+  void exec(const char* sql);
 public:
-    explicit SqliteQueue(const std::string& dbPath);
-    ~SqliteQueue();
-    
-    // Producer: Add batch of messages
-    bool enqueue(const std::vector<std::string>& batch);
-    
-    // Consumer: Get batch of messages (marks as processed)
-    std::optional<std::vector<std::string>> dequeue(size_t maxMessages = 100);
-    
-    // Stats
-    size_t getPendingCount();
-    size_t getTotalCount();
-    
-    // Cleanup processed messages older than N hours
-    void cleanupProcessed(size_t olderThanHours = 24);
-    
-private:
-    bool initializeDatabase();
-    
-    sqlite3* db_;
-    std::string db_path_;
-    std::mutex mutex_;  // Protects DB operations
+  SqliteQueue(const std::string& path, unsigned capacity, unsigned lease);
+  ~SqliteQueue();
+  int enqueue(const std::string& id, const pipeline::json& logs);
+  std::string claim(unsigned limit);
+  unsigned acknowledge(const pipeline::json& receipts);
+  pipeline::json stats();
 };
-
-}  // namespace log_queue
+}

@@ -4,6 +4,7 @@ import { LogRepository } from '../db/logRepository';
 import { LogEntry, SearchParams } from '../types/log';
 import { parseQueryInt } from '../utils/queryHelpers';
 import { normalizeLevel } from '../utils/logNormalizer';
+import { InvalidCursor } from '../db/logPageReader';
 
 export function createLogsRouter(logRepo: LogRepository): Router {
   const router = Router();
@@ -32,7 +33,7 @@ export function createLogsRouter(logRepo: LogRepository): Router {
         level: normalizeLevel(level),
         source: validatedSource || 'api',
         message,
-        raw: typeof raw === 'string' ? raw : undefined
+        raw: typeof raw === 'string' ? raw : undefined,
       };
 
       logRepo.insert(entry);
@@ -45,6 +46,11 @@ export function createLogsRouter(logRepo: LogRepository): Router {
 
   // GET /api/logs - Search logs
   router.get('/', (req: Request, res: Response) => {
+    for (const key of ['q', 'level', 'source', 'startDate', 'endDate'])
+      if (req.query[key] !== undefined && typeof req.query[key] !== 'string') {
+        res.status(400).json({ error: 'Invalid filter' });
+        return;
+      }
     try {
       const limit = parseQueryInt(req.query.limit as string, 50, 1, 1000);
       const offset = parseQueryInt(req.query.offset as string, 0, 0);
@@ -56,7 +62,7 @@ export function createLogsRouter(logRepo: LogRepository): Router {
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
         limit,
-        offset
+        offset,
       };
 
       const result = logRepo.search(params);
@@ -64,11 +70,52 @@ export function createLogsRouter(logRepo: LogRepository): Router {
         logs: result.logs,
         total: result.total,
         limit,
-        offset
+        offset,
       });
     } catch (error) {
       console.error('Error searching logs:', error);
       res.status(500).json({ error: 'Failed to search logs' });
+    }
+  });
+
+  router.get('/page', (req: Request, res: Response) => {
+    for (const key of ['q', 'level', 'source', 'startDate', 'endDate', 'cursor'])
+      if (req.query[key] !== undefined && typeof req.query[key] !== 'string') {
+        res.status(400).json({ error: 'Invalid filter' });
+        return;
+      }
+    const q = req.query.q as string | undefined,
+      source = req.query.source as string | undefined;
+    if ((q && q.length > 10000) || (source && source.length > 500)) {
+      res.status(400).json({ error: 'Filter too long' });
+      return;
+    }
+    const startDate = req.query.startDate as string | undefined,
+      endDate = req.query.endDate as string | undefined;
+    if (
+      (startDate && !Number.isFinite(Date.parse(startDate))) ||
+      (endDate && !Number.isFinite(Date.parse(endDate))) ||
+      (startDate && endDate && Date.parse(startDate) > Date.parse(endDate))
+    ) {
+      res.status(400).json({ error: 'Invalid time range' });
+      return;
+    }
+    try {
+      res.json(
+        logRepo.searchPage({
+          q,
+          source,
+          level: req.query.level ? String(req.query.level).toLowerCase() : undefined,
+          startDate,
+          endDate,
+          limit: parseQueryInt(req.query.limit as string, 50, 1, 1000),
+          cursor: req.query.cursor as string | undefined,
+        }),
+      );
+    } catch (error) {
+      res
+        .status(error instanceof InvalidCursor ? 400 : 500)
+        .json({ error: error instanceof InvalidCursor ? error.message : 'Search failed' });
     }
   });
 
@@ -88,7 +135,7 @@ export function createLogsRouter(logRepo: LogRepository): Router {
   router.get('/:id', (req: Request, res: Response) => {
     try {
       const log = logRepo.getById(req.params.id);
-      
+
       if (!log) {
         res.status(404).json({ error: 'Log not found' });
         return;
@@ -124,9 +171,9 @@ export function createLogsRouter(logRepo: LogRepository): Router {
 
 function validateTimestamp(timestamp: string | undefined): string | null {
   if (!timestamp) return null;
-  
+
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return null;
-  
+
   return date.toISOString();
 }

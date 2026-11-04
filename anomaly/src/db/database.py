@@ -44,14 +44,14 @@ class Database:
     def get_cursor(self) -> Generator[sqlite3.Cursor, None, None]:
         with self._lock:
             cursor = self.connection.cursor()
-        try:
-            yield cursor
-        finally:
-            cursor.close()
+            try:
+                yield cursor
+            finally:
+                cursor.close()
 
     def execute(self, query: str, params: tuple = ()) -> sqlite3.Cursor:
         with self._lock:
-            return self._connection.execute(query, params)
+            return self.connection.execute(query, params)
 
     def commit(self) -> None:
         with self._lock:

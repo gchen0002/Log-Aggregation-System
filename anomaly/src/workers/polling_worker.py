@@ -45,6 +45,7 @@ class PollingWorker:
             logger.warning("worker_already_running")
             return
 
+        self._shutdown_event.clear()
         self._running_event.set()
         with self._state_lock:
             self.start_time = datetime.now(UTC)
@@ -138,10 +139,10 @@ class PollingWorker:
 
         try:
             self.alert_repo.create(
-                log_id=anomaly.log_id,
+                log_id=(self.log_repo.fetch_recent_logs(limit=1)[0].id if anomaly.log_id == "system" else anomaly.log_id),
                 severity=anomaly.severity,
                 message=anomaly.message,
-                details=anomaly.details,
+                details={**(anomaly.details or {}), "anomaly_type": anomaly.anomaly_type},
             )
             with self._state_lock:
                 self.alerts_created += 1

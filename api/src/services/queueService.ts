@@ -11,7 +11,7 @@ export class QueueService {
     baseUrl: string,
     timeout: number = 5000,
     maxRetries: number = 3,
-    maxResponseSize: number = 10 * 1024 * 1024 // 10MB default
+    maxResponseSize: number = 10 * 1024 * 1024, // 10MB default
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.timeout = timeout;
@@ -21,19 +21,19 @@ export class QueueService {
 
   async fetchBatch(): Promise<QueueMessage[]> {
     const url = `${this.baseUrl}/api/logs/pending`;
-    
+
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
         const response = await this.httpGet(url);
         const data = JSON.parse(response) as { messages?: Array<{ id: number; content: string }> };
-        
+
         if (!data.messages || !Array.isArray(data.messages)) {
           return [];
         }
 
-        return data.messages.map(msg => ({
+        return data.messages.map((msg) => ({
           id: msg.id,
-          content: msg.content
+          content: msg.content,
         }));
       } catch (error) {
         if (attempt === this.maxRetries) {
@@ -45,20 +45,20 @@ export class QueueService {
         await this.delay(baseDelay + jitter);
       }
     }
-    
+
     throw new Error('Max retries exceeded');
   }
 
   async getStats(): Promise<QueueStats> {
     const url = `${this.baseUrl}/api/queue/stats`;
-    
+
     try {
       const response = await this.httpGet(url);
       const data = JSON.parse(response) as { pending?: number; total?: number };
-      
+
       return {
         pending: data.pending || 0,
-        total: data.total || 0
+        total: data.total || 0,
       };
     } catch (error) {
       return { pending: 0, total: 0 };
@@ -69,30 +69,38 @@ export class QueueService {
     return new Promise((resolve, reject) => {
       let settled = false;
       const safeResolve = (value: string): void => {
-        if (!settled) { settled = true; resolve(value); }
+        if (!settled) {
+          settled = true;
+          resolve(value);
+        }
       };
       const safeReject = (error: Error): void => {
-        if (!settled) { settled = true; reject(error); }
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
       };
 
       const request = http.get(url, { timeout: this.timeout }, (response) => {
         let data = '';
         let receivedSize = 0;
-        
+
         response.on('data', (chunk: Buffer) => {
           receivedSize += chunk.length;
           if (receivedSize > this.maxResponseSize) {
             request.destroy();
-            safeReject(new Error(`Response exceeded maximum size of ${this.maxResponseSize} bytes`));
+            safeReject(
+              new Error(`Response exceeded maximum size of ${this.maxResponseSize} bytes`),
+            );
             return;
           }
           data += chunk;
         });
-        
+
         response.on('error', (error) => {
           safeReject(error);
         });
-        
+
         response.on('end', () => {
           if (response.statusCode && response.statusCode >= 200 && response.statusCode < 300) {
             safeResolve(data);
@@ -101,11 +109,11 @@ export class QueueService {
           }
         });
       });
-      
+
       request.on('error', (error) => {
         safeReject(error);
       });
-      
+
       request.on('timeout', () => {
         request.destroy();
         safeReject(new Error('Request timeout'));
@@ -114,6 +122,6 @@ export class QueueService {
   }
 
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
