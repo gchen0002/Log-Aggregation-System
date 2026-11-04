@@ -53,11 +53,13 @@ void LogParser::normalizeJson(nlohmann::json &entry) const {
     if (!entry.is_object())
         return;
     const auto alias = [&](const char *canonical, std::initializer_list<const char *> names) {
-        if (entry.contains(canonical) && !entry[canonical].is_null())
+        const auto value = entry.find(canonical);
+        if (value != entry.end() && !value->is_null())
             return;
         for (const auto *name : names) {
-            if (entry.contains(name) && !entry[name].is_null()) {
-                entry[canonical] = entry[name];
+            const auto alternative = entry.find(name);
+            if (alternative != entry.end() && !alternative->is_null()) {
+                entry[canonical] = *alternative;
                 return;
             }
         }
@@ -66,17 +68,19 @@ void LogParser::normalizeJson(nlohmann::json &entry) const {
     alias("level", {"severity", "log_level"});
     alias("source", {"service", "app"});
     alias("timestamp", {"time", "ts"});
-    if (entry.contains("level")) {
-        auto &level = entry["level"];
+    if (auto position = entry.find("level"); position != entry.end()) {
+        auto &level = *position;
         if (level.is_number_integer()) {
             const auto n = level.get<long long>();
             level = n == 0 ? "debug" : n == 2 ? "warn" : n == 3 ? "error" : "info";
         } else if (level.is_string()) {
-            level = normalizeLevel(level.get_ref<const std::string &>());
+            const auto &text = level.get_ref<const std::string &>();
+            if (text != "info" && text != "error" && text != "warn" && text != "debug")
+                level = normalizeLevel(text);
         }
     }
-    if (entry.contains("timestamp")) {
-        auto &timestamp = entry["timestamp"];
+    if (auto position = entry.find("timestamp"); position != entry.end()) {
+        auto &timestamp = *position;
         if (timestamp.is_number()) {
             const double value = timestamp.get<double>();
             // The worker consumes milliseconds. Keep ISO strings intact so their
