@@ -49,99 +49,74 @@ std::optional<LogEntry> LogParser::parse(const std::string &line) const {
     return parsePlainText(line);
 }
 
+void LogParser::normalizeJson(nlohmann::json &entry) const {
+    if (!entry.is_object())
+        return;
+    const auto alias = [&](const char *canonical, std::initializer_list<const char *> names) {
+        if (entry.contains(canonical) && !entry[canonical].is_null())
+            return;
+        for (const auto *name : names) {
+            if (entry.contains(name) && !entry[name].is_null()) {
+                entry[canonical] = entry[name];
+                return;
+            }
+        }
+    };
+    alias("message", {"msg", "text"});
+    alias("level", {"severity", "log_level"});
+    alias("source", {"service", "app"});
+    alias("timestamp", {"time", "ts"});
+    if (entry.contains("level")) {
+        auto &level = entry["level"];
+        if (level.is_number_integer()) {
+            const auto n = level.get<long long>();
+            level = n == 0 ? "debug" : n == 2 ? "warn" : n == 3 ? "error" : "info";
+        } else if (level.is_string()) {
+            level = normalizeLevel(level.get_ref<const std::string &>());
+        }
+    }
+    if (entry.contains("timestamp")) {
+        auto &timestamp = entry["timestamp"];
+        if (timestamp.is_number()) {
+            const double value = timestamp.get<double>();
+            // The worker consumes milliseconds. Keep ISO strings intact so their
+            // fractional seconds and UTC offsets survive normalization.
+            if (value > -1000000000000.0 && value < 1000000000000.0)
+                timestamp = value * 1000.0;
+        } else if (timestamp.is_string()) {
+            const auto &text = timestamp.get_ref<const std::string &>();
+            if (!text.empty() && std::all_of(text.begin(), text.end(),
+                                             [](unsigned char c) { return std::isdigit(c); })) {
+                timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                parseTimestamp(text).time_since_epoch())
+                                .count();
+            }
+        }
+    }
+}
+
 std::optional<LogEntry> LogParser::parseJson(const std::string &line) const {
     try {
-        // Parse with nlohmann/json - handles all edge cases
         auto j = nlohmann::json::parse(line);
-
+        normalizeJson(j);
+        if (!j.is_object() || !j.contains("message") || !j.contains("level"))
+            return std::nullopt;
         LogEntry entry;
         entry.raw = line;
-
-        // Extract level (supports multiple field names and types)
-        std::string levelStr;
-        if (j.contains("level") && !j["level"].is_null()) {
-            if (j["level"].is_string()) {
-                levelStr = j["level"].get<std::string>();
-            } else if (j["level"].is_number_integer()) {
-                // Map numeric levels: 0=debug, 1=info, 2=warn, 3=error
-                int levelNum = j["level"].get<int>();
-                switch (levelNum) {
-                case 0:
-                    levelStr = "debug";
-                    break;
-                case 1:
-                    levelStr = "info";
-                    break;
-                case 2:
-                    levelStr = "warn";
-                    break;
-                case 3:
-                    levelStr = "error";
-                    break;
-                default:
-                    levelStr = "info";
-                }
-            }
-        } else if (j.contains("severity") && !j["severity"].is_null()) {
-            levelStr = j["severity"].get<std::string>();
-        } else if (j.contains("log_level") && !j["log_level"].is_null()) {
-            levelStr = j["log_level"].get<std::string>();
-        } else {
-            return std::nullopt; // Required field missing
-        }
-        entry.level = normalizeLevel(levelStr);
-
-        // Extract message (handle nulls)
-        if (j.contains("message") && !j["message"].is_null()) {
-            entry.message = j["message"].get<std::string>();
-        } else if (j.contains("msg") && !j["msg"].is_null()) {
-            entry.message = j["msg"].get<std::string>();
-        } else if (j.contains("text") && !j["text"].is_null()) {
-            entry.message = j["text"].get<std::string>();
-        } else {
-            return std::nullopt; // Required field missing
-        }
-
-        // Optional: source
-        if (j.contains("source") && !j["source"].is_null()) {
-            entry.source = j["source"].get<std::string>();
-        } else if (j.contains("service") && !j["service"].is_null()) {
-            entry.source = j["service"].get<std::string>();
-        } else if (j.contains("app") && !j["app"].is_null()) {
-            entry.source = j["app"].get<std::string>();
-        } else {
-            entry.source = "unknown";
-        }
-
-        // Optional: timestamp from log (if present)
-        if (j.contains("timestamp") && !j["timestamp"].is_null()) {
-            if (j["timestamp"].is_number()) {
-                // Unix timestamp (milliseconds or seconds)
-                auto ts = j["timestamp"].get<long long>();
-                if (ts > 1000000000000LL) { // Milliseconds (13+ digits)
-                    entry.timestamp =
-                        std::chrono::system_clock::time_point(std::chrono::milliseconds(ts));
-                } else { // Seconds (10 digits)
-                    entry.timestamp =
-                        std::chrono::system_clock::time_point(std::chrono::seconds(ts));
-                }
-            } else if (j["timestamp"].is_string()) {
-                entry.timestamp = parseTimestamp(j["timestamp"].get<std::string>());
-            } else {
-                entry.timestamp = std::chrono::system_clock::now();
-            }
-        } else if (j.contains("time") && !j["time"].is_null()) {
-            entry.timestamp = parseTimestamp(j["time"].get<std::string>());
-        } else if (j.contains("ts") && !j["ts"].is_null()) {
-            entry.timestamp = parseTimestamp(j["ts"].get<std::string>());
-        } else {
+        entry.message = j.at("message").get<std::string>();
+        entry.level = j.at("level").get<std::string>();
+        entry.source = j.contains("source") && !j["source"].is_null()
+                           ? j["source"].get<std::string>()
+                           : "unknown";
+        if (j.contains("timestamp") && j["timestamp"].is_number())
+            entry.timestamp = std::chrono::system_clock::time_point(
+                std::chrono::milliseconds(j["timestamp"].get<long long>()));
+        else if (j.contains("timestamp") && j["timestamp"].is_string())
+            entry.timestamp = parseTimestamp(j["timestamp"].get<std::string>());
+        else
             entry.timestamp = std::chrono::system_clock::now();
-        }
-
         return entry;
-
     } catch (const nlohmann::json::exception &) {
-        // Not valid JSON
         return std::nullopt;
     }
 }

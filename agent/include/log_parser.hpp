@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -20,6 +21,7 @@ class LogParser {
     LogParser() = default;
 
     std::optional<LogEntry> parse(const std::string &line) const;
+    void normalizeJson(nlohmann::json &entry) const;
 
   private:
     std::optional<LogEntry> parseJson(const std::string &line) const;

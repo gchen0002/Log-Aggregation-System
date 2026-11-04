@@ -177,6 +177,102 @@ try {
     );
   assert.equal(new Set([...page.logs, ...older.logs].map((log) => log.id)).size, 50);
   pass('Cursor pages preserve unique, timestamp-ordered search results');
+  const inputs = [
+    {
+      severity: 'ERROR',
+      msg: 'parser regression alias',
+      service: 'payments',
+      timestamp: 1700000000,
+    },
+    {
+      id: 'parser-text',
+      log_level: 'warning',
+      text: 'parser regression text',
+      app: 'catalog',
+      time: '2024-01-02T12:34:56.789+05:30',
+    },
+    ...[0, 1, 2, 3].map((level) => ({
+      id: 'parser-level-' + level,
+      level,
+      message: 'parser regression numeric ' + level,
+      source: 'auth',
+      timestamp: 1700000000123,
+    })),
+    {
+      id: 'parser-string-seconds',
+      level: 'fatal',
+      message: 'parser regression seconds',
+      source: 'worker',
+      ts: '1700000000',
+    },
+    {
+      id: 'parser-string-ms',
+      level: 'notice',
+      message: 'parser regression milliseconds',
+      source: 'worker',
+      timestamp: '1700000000123',
+    },
+    {
+      id: 'parser-canonical',
+      level: 'error',
+      severity: 'info',
+      message: 'parser regression canonical',
+      msg: 'ignored alias',
+      source: 'gateway',
+      service: 'ignored',
+      timestamp: '2024-01-02T12:34:56.123Z',
+      raw: 'original custom payload',
+    },
+  ];
+  const originalLines = inputs.map((value) => JSON.stringify(value));
+  await appendFile(stack.file, originalLines.join('\n') + '\n');
+  await waitFor(async () => (await count()) === 3004 + inputs.length);
+  await drained();
+  const normalized = (await json(stack.apiUrl + '/api/logs/page?q=parser%20regression')).logs;
+  assert.equal(normalized.length, inputs.length);
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i],
+      row = normalized.find((row) => row.message === (input.message ?? input.msg ?? input.text));
+    assert.ok(row);
+    assert.equal(row.source, input.source ?? input.service ?? input.app);
+    assert.equal(row.raw, input.raw ?? originalLines[i]);
+    if (input.id) assert.equal(row.id, input.id);
+    const level =
+      typeof input.level === 'number'
+        ? ['debug', 'info', 'warn', 'error'][input.level]
+        : (input.level ?? input.severity ?? input.log_level);
+    assert.equal(
+      row.level,
+      { ERROR: 'error', warning: 'warn', fatal: 'error', notice: 'info' }[level] ?? level,
+    );
+    const stamp = input.timestamp ?? input.time ?? input.ts;
+    const millis = String(stamp).match(/^\d+$/)
+      ? Number(stamp) * (Number(stamp) < 1e12 ? 1000 : 1)
+      : Date.parse(stamp);
+    assert.equal(row.timestamp, new Date(millis).toISOString());
+  }
+  await waitFor(
+    async () =>
+      JSON.parse(await readFile(directory + '/agent.checkpoint.json', 'utf8')).offset ===
+      (await readFile(stack.file)).length,
+  );
+  await stack.processes.stopChild(agent, true);
+  const replayState = JSON.parse(await readFile(directory + '/agent.checkpoint.json', 'utf8'));
+  replayState.offset = 0;
+  await writeFile(directory + '/agent.checkpoint.json', JSON.stringify(replayState));
+  agent = stack.startAgent();
+  await waitFor(
+    async () =>
+      JSON.parse(await readFile(directory + '/agent.checkpoint.json', 'utf8')).offset ===
+      (await readFile(stack.file)).length,
+  );
+  await drained();
+  assert.deepEqual(
+    (await json(stack.apiUrl + '/api/logs/page?q=parser%20regression')).logs,
+    normalized,
+  );
+  assert.equal((await json(stack.apiUrl + '/metrics')).ingestion.rejected, 1);
+  pass('JSON aliases, numeric levels, timestamp units, raw payloads and stable replay IDs');
   await stack.processes.stopChild(agent, true);
   const position = JSON.parse(await readFile(directory + '/agent.checkpoint.json', 'utf8')).offset;
   await appendFile(stack.file, 'x'.repeat(1024 * 1024 + 1));
@@ -238,7 +334,7 @@ try {
   await writeFile(
     directory + '/results.json',
     JSON.stringify(
-      { checks, passed: checks.length === 13, recordedAt: new Date().toISOString() },
+      { checks, passed: checks.length === 14, recordedAt: new Date().toISOString() },
       null,
       2,
     ) + '\n',

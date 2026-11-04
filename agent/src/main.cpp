@@ -110,6 +110,7 @@ int main(int argc, char **argv) {
                                     parsed->timestamp.time_since_epoch())
                                     .count();
                     }
+                    log_agent::LogParser{}.normalizeJson(entry);
                     if (!entry.contains("message") || !entry["message"].is_string())
                         entry["message"] = line;
                     if (!entry.contains("source"))
