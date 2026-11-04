@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { root, json, waitFor, freePort, npm } from './runtime.mjs';
 import { startStack } from './stack.mjs';
 import { makeLog, generate } from './simulator.mjs';
@@ -107,6 +108,9 @@ try {
   assert.equal(delivered.indexedLogs, delivered.queue.total);
   report = {
     recordedAt: new Date().toISOString(),
+    sourceCommit:
+      spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout?.trim() ||
+      null,
     environment: {
       os: os.platform(),
       arch: os.arch(),

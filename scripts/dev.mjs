@@ -15,12 +15,14 @@ await buildNative();
 await npm(['run', 'build'], root + '/api');
 const abort = new AbortController();
 let stack,
-  stopping = false;
-async function stop() {
-  if (stopping) return;
+  stopping = false,
+  stopTask;
+function stop() {
+  if (stopTask) return stopTask;
   stopping = true;
   abort.abort();
-  if (stack) await stack.processes.stop();
+  stopTask = stack ? stack.processes.stop() : Promise.resolve();
+  return stopTask;
 }
 process.on('SIGINT', () => void stop());
 process.on('SIGTERM', () => void stop());
@@ -45,10 +47,15 @@ try {
         ' logs/sec. Ctrl+C stops this stack.',
     );
     const simulation = generate(stack.file, { rate, signal: abort.signal });
-    while (!stopping) {
-      stack.processes.assertHealthy();
-      await delay(250);
-    }
+    await Promise.race([
+      simulation,
+      (async () => {
+        while (!stopping) {
+          stack.processes.assertHealthy();
+          await delay(250);
+        }
+      })(),
+    ]);
     await simulation;
   }
 } catch (error) {

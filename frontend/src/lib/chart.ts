@@ -1,7 +1,7 @@
 import type { Point } from './model';
 export type ChartKey = Exclude<keyof Point, 'time'>;
 export function niceScale(value: number) {
-  if (value <= 0) return { max: 1, step: 0.25 };
+  if (value <= 0) return { max: 1, step: 1 };
   const base = 10 ** Math.floor(Math.log10(value / 3));
   const step = ([1, 2, 5, 10].find((n) => n * base >= value / 3) ?? 10) * base;
   return { max: Math.ceil(value / step) * step, step };

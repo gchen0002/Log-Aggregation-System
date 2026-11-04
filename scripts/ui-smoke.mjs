@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { root, Processes, json, waitFor, freePort } from './runtime.mjs';
 if (!process.env.npm_execpath) throw new Error('Run with npm run test:ui.');
@@ -7,21 +7,24 @@ await mkdir(root + '/.runtime', { recursive: true });
 const directory = await mkdtemp(root + '/.runtime/ui-smoke-'),
   ports = [await freePort(), await freePort(), await freePort(), await freePort()],
   processes = new Processes(directory, true),
-  base = 'http://127.0.0.1:' + ports[3],
   checks = [];
+let base = 'http://127.0.0.1:' + ports[3];
 const pass = (name) => {
   checks.push(name);
   console.log('PASS ' + name);
 };
-processes.start('dev', process.execPath, [process.env.npm_execpath, 'run', 'dev'], {
-  env: {
-    DATA_DIR: directory,
-    API_PORT: String(ports[0]),
-    QUEUE_PORT: String(ports[1]),
-    ANOMALY_PORT: String(ports[2]),
-    FRONTEND_PORT: String(ports[3]),
-  },
-});
+const startDev = (owner, dataDirectory) =>
+  owner.start('dev', process.execPath, [process.env.npm_execpath, 'run', 'dev'], {
+    shutdownTimeout: 30000,
+    env: {
+      DATA_DIR: dataDirectory,
+      API_PORT: String(ports[0]),
+      QUEUE_PORT: String(ports[1]),
+      ANOMALY_PORT: String(ports[2]),
+      FRONTEND_PORT: String(ports[3]),
+    },
+  });
+startDev(processes, directory);
 try {
   await waitFor(
     async () => {
@@ -133,7 +136,7 @@ try {
     directory + '/results.json',
     JSON.stringify(
       {
-        passed: checks.length === 12,
+        passed: false,
         checks,
         command: 'npm run dev',
         recordedAt: new Date().toISOString(),
@@ -144,3 +147,55 @@ try {
   );
   console.log('Runtime artifacts: ' + directory);
 }
+
+for (let i = 0; i < ports.length; i++) ports[i] = await freePort();
+base = 'http://127.0.0.1:' + ports[3];
+const failedDirectory = directory + '/write-failure',
+  failureProcesses = new Processes(failedDirectory, true);
+const failedDev = startDev(failureProcesses, failedDirectory);
+failedDev.expectedExit = true;
+try {
+  await waitFor(
+    async () => (await json(base + '/pipeline-metrics')).indexedLogs > 1000,
+    120000,
+    'second dev startup',
+  );
+  await chmod(failedDirectory + '/events.ndjson', 0o444);
+  await waitFor(() => failedDev.exitCode !== null, 45000, 'generator failure shutdown');
+  assert.equal(failedDev.exitCode, 1);
+  assert.match(
+    await readFile(failedDirectory + '/output/dev.log', 'utf8'),
+    /EACCES|EPERM|permission denied/i,
+  );
+  for (const port of ports) {
+    await waitFor(
+      async () => {
+        try {
+          await fetch('http://127.0.0.1:' + port + '/health', { signal: AbortSignal.timeout(500) });
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      15000,
+      'failed dev service shutdown',
+    );
+  }
+  pass('Generator write failure stops all owned services');
+} finally {
+  await chmod(failedDirectory + '/events.ndjson', 0o644).catch(() => {});
+  await failureProcesses.stop();
+}
+await writeFile(
+  directory + '/results.json',
+  JSON.stringify(
+    {
+      passed: checks.length === 13,
+      checks,
+      command: 'npm run dev',
+      recordedAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  ) + '\n',
+);

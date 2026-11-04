@@ -82,11 +82,13 @@ export class Processes {
     mkdirSync(path.join(directory, 'output'), { recursive: true });
   }
   start(name, command, args, options = {}) {
+    const { shutdownTimeout = 15000, ...spawnOptions } = options;
     const child = spawn(command, args, {
       cwd: root,
       detached: !windows,
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      ...options,
+      ...spawnOptions,
       env: {
         ...process.env,
         OPENBLAS_NUM_THREADS: '2',
@@ -95,6 +97,7 @@ export class Processes {
         ...options.env,
       },
     });
+    child.shutdownTimeout = shutdownTimeout;
     const output = createWriteStream(path.join(this.directory, 'output', name + '.log'), {
       flags: 'a',
     });
@@ -142,12 +145,12 @@ export class Processes {
       } catch {}
     };
     kill(force);
-    const timer = setTimeout(() => kill(true), 5000);
+    const timer = setTimeout(() => kill(true), child.shutdownTimeout);
     await exited;
     clearTimeout(timer);
   }
   async stop() {
     this.stopping = true;
-    for (const child of [...this.children].reverse()) await this.stopChild(child);
+    await Promise.all([...this.children].reverse().map((child) => this.stopChild(child)));
   }
 }

@@ -4,7 +4,7 @@ WORKDIR /app
 COPY anomaly/requirements.txt ./
 RUN --mount=type=secret,id=ca_bundle \
     if [ -s /run/secrets/ca_bundle ]; then export PIP_CERT=/run/secrets/ca_bundle; fi; pip install --no-cache-dir -r requirements.txt
-COPY anomaly/src src
+COPY --chown=1000:1000 anomaly/src src
 RUN mkdir -p /data && chown 1000:1000 /data
 ENV DB_PATH=/data/logs.db MODEL_PATH=/data/model.pkl OPENBLAS_NUM_THREADS=2 OMP_NUM_THREADS=2
 USER 1000:1000

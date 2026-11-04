@@ -258,8 +258,8 @@ export default function TelemetryChart({
                 </linearGradient>
               ))}
             </defs>
-            {Array.from({ length: 4 }, (_, i) => {
-              const n = (model.scale.max * i) / 3;
+            {Array.from({ length: Math.round(model.scale.max / model.scale.step) + 1 }, (_, i) => {
+              const n = model.scale.step * i;
               return (
                 <g key={i}>
                   <line

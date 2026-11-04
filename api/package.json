@@ -4,13 +4,11 @@
   "description": "REST API for log aggregation system",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "ts-node-dev --respawn src/index.ts",
+    "dev": "npm run build && node dist/index.js",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src/**/*.ts",
-    "test": "jest",
-    "seed": "ts-node-dev --transpile-only scripts/seed.ts",
-    "seed:prod": "node dist/scripts/seed.js"
+    "test": "jest"
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

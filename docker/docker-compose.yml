@@ -29,7 +29,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.api
-    command: [node, --input-type=module, -e, "import {generate} from './simulator.mjs'; await generate('/events/events.ndjson',{rate:5000});"]
+    environment:
+      SIM_RATE: ${SIM_RATE:-5000}
+    command: [node, --input-type=module, -e, "import {generate} from './simulator.mjs'; await generate('/events/events.ndjson',{rate:Number(process.env.SIM_RATE)});"]
     volumes: [events:/events]
   agent:
     build:
@@ -49,6 +51,11 @@ services:
     volumes: [log-data:/data]
     depends_on:
       api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=1)"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
   frontend:
     build:
       context: ..
@@ -56,6 +63,11 @@ services:
     ports: ['127.0.0.1:3001:3001']
     depends_on:
       api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 volumes:
   queue-data:
   log-data:
