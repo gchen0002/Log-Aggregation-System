@@ -1,5 +1,5 @@
 import { Request, Response, Router } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import { LogRepository } from '../db/logRepository';
 import { LogEntry, SearchParams } from '../types/log';
 import { parseQueryInt } from '../utils/queryHelpers';
@@ -106,8 +106,8 @@ export function createLogsRouter(logRepo: LogRepository): Router {
           q,
           source,
           level: req.query.level ? String(req.query.level).toLowerCase() : undefined,
-          startDate,
-          endDate,
+          startDate: startDate ? new Date(startDate).toISOString() : undefined,
+          endDate: endDate ? new Date(endDate).toISOString() : undefined,
           limit: parseQueryInt(req.query.limit as string, 50, 1, 1000),
           cursor: req.query.cursor as string | undefined,
         }),

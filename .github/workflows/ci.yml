@@ -1,0 +1,44 @@
+name: Build and verify
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  native-and-app:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      OPENBLAS_NUM_THREADS: '2'
+      OMP_NUM_THREADS: '2'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm run setup
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:ui
+      - run: npm audit --prefix api --omit=dev --audit-level=high
+      - run: npm audit --prefix frontend --omit=dev --audit-level=high
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PARALLEL_LIMIT: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -p verify -f docker/docker-compose.yml build
+      - run: docker compose -p verify -f docker/docker-compose.yml up -d --wait --wait-timeout 120
+      - run: curl --fail --retry 10 --retry-delay 2 http://127.0.0.1:3001/
+      - if: always()
+        run: docker compose -p verify -f docker/docker-compose.yml logs --tail 50
+      - if: always()
+        run: docker compose -p verify -f docker/docker-compose.yml down --volumes

@@ -2,7 +2,7 @@ import { Worker } from 'node:worker_threads';
 import path from 'node:path';
 export class IngestionController {
   state: { isRunning: boolean; lastError: string | null; duplicates: number; rejected: number } = {
-    isRunning: true,
+    isRunning: false,
     lastError: null,
     duplicates: 0,
     rejected: 0,
@@ -20,12 +20,12 @@ export class IngestionController {
       this.state = { ...this.state, isRunning: false, lastError: error.message };
     });
     this.worker.on('exit', () => {
-      this.exited=true;
+      this.exited = true;
       this.state = { ...this.state, isRunning: false };
     });
   }
   async stop() {
-    if(this.exited)return;
+    if (this.exited) return;
     this.worker.postMessage('stop');
     const timer = setTimeout(() => void this.worker.terminate(), 12000);
     await new Promise<void>((resolve) => {

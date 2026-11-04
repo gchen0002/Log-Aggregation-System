@@ -33,7 +33,9 @@ class MockDetector(BaseDetector):
 
 
 class TestPollingWorker:
-    def test_worker_stats(self, settings: Settings, log_repo: LogRepository, alert_repo: AlertRepository):
+    def test_worker_stats(
+        self, settings: Settings, log_repo: LogRepository, alert_repo: AlertRepository
+    ):
         detector = MockDetector()
         worker = PollingWorker(
             settings=settings,
@@ -48,7 +50,9 @@ class TestPollingWorker:
         assert stats["polls_count"] == 0
         assert stats["logs_processed"] == 0
 
-    def test_worker_start_stop(self, settings: Settings, log_repo: LogRepository, alert_repo: AlertRepository):
+    def test_worker_start_stop(
+        self, settings: Settings, log_repo: LogRepository, alert_repo: AlertRepository
+    ):
         detector = MockDetector()
         worker = PollingWorker(
             settings=settings,
@@ -196,3 +200,27 @@ class TestPollingWorker:
 
         assert working.detect_calls == 1
         assert worker.logs_processed == 1
+
+    def test_error_rate_uses_full_window_not_incremental_batch(
+        self, settings, log_repo, alert_repo
+    ):
+        from datetime import UTC, timedelta
+        from src.detectors.statistical import ErrorBurstDetector
+
+        now = datetime.now(UTC)
+        for i in range(120):
+            stamp = now - timedelta(minutes=1 if i < 60 else 10)
+            log_repo.db.execute(
+                "INSERT INTO logs VALUES (?, ?, 'error', 'auth', 'timeout', NULL)",
+                (f"window-{i}", stamp.isoformat(timespec="milliseconds").replace("+00:00", "Z")),
+            )
+        log_repo.db.commit()
+        # Every polling batch is below the threshold, but the full window is above it.
+        settings.batch_size = 10
+        worker = PollingWorker(settings, log_repo, alert_repo, [ErrorBurstDetector()])
+        worker._poll_and_detect()
+        alerts = alert_repo.get_recent_alerts()
+        assert len(alerts) == 1
+        assert alerts[0].details["error_count"] == 60
+        assert alerts[0].details["errors_per_minute"] == 12
+        assert alerts[0].details["window_end"]

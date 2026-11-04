@@ -55,15 +55,15 @@ export function readLogPage(db: Database.Database, params: SearchParams & { curs
   let rows: Record<string, unknown>[];
   if (params.q) {
     const phrase = '"' + params.q.replace(/"/g, '""') + '"';
-    // Correlated rowid+MATCH checks stop after enough recent hits; rare phrases
-    // fall back to the global FTS index. Both paths preserve the same ordering.
+    // Intersect one bounded FTS scan with the latest timestamp-ordered rows.
+    // A correlated MATCH per candidate becomes very expensive for sparse phrases.
+    // Fall back to the global index when the recent slice cannot fill a page.
     rows = db
       .prepare(
-        'WITH recent AS MATERIALIZED (SELECT ' +
-          fields +
+        'WITH recent AS MATERIALIZED (SELECT rowid AS cursor_row,timestamp' +
           ' FROM logs ' +
           where +
-          ' ORDER BY timestamp DESC,rowid DESC LIMIT 4096) SELECT * FROM recent WHERE EXISTS(SELECT 1 FROM logs_fts WHERE rowid=recent.cursor_row AND logs_fts MATCH ?) ORDER BY timestamp DESC,cursor_row DESC LIMIT ?',
+          ' ORDER BY timestamp DESC,rowid DESC LIMIT 10000), hits AS (SELECT * FROM recent WHERE cursor_row IN (SELECT rowid FROM logs_fts WHERE logs_fts MATCH ? AND rowid >= (SELECT min(cursor_row) FROM recent) AND rowid <= (SELECT max(cursor_row) FROM recent)) ORDER BY timestamp DESC,cursor_row DESC LIMIT ?) SELECT logs.rowid AS cursor_row,logs.* FROM hits JOIN logs ON logs.rowid=hits.cursor_row ORDER BY logs.timestamp DESC,logs.rowid DESC',
       )
       .all(...values, phrase, limit + 1) as Record<string, unknown>[];
     if (rows.length <= limit)

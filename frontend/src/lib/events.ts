@@ -60,11 +60,11 @@ export function relatedParams(alert: AlertItem) {
     d = alert.details ?? {},
     source = alertSource(alert),
     window = numeric(d, 'windowMinutes', 'window_minutes') ?? 5,
-    t = serverDate(alert.createdAt).getTime();
+    t = serverDate(typeof d.window_end === 'string' ? d.window_end : alert.createdAt).getTime();
   if (source) p.set('source', source);
   if (Number.isFinite(t)) {
     p.set('startDate', new Date(t - Math.max(1, Math.min(1440, window)) * 60000).toISOString());
-    p.set('endDate', new Date(t + 1000).toISOString());
+    p.set('endDate', new Date(t + (typeof d.window_end === 'string' ? 0 : 1000)).toISOString());
   }
   if (numeric(d, 'errorsPerMinute', 'errors_per_minute') != null) p.set('level', 'error');
   return p;

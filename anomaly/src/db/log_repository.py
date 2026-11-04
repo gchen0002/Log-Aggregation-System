@@ -1,7 +1,7 @@
 """Log repository for reading logs from SQLite database."""
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -67,11 +67,15 @@ class LogRepository:
     ) -> list[LogEntry]:
         position = 0
         if since_id:
-            row = self.db.execute("SELECT rowid AS position FROM logs WHERE id = ?", (since_id,)).fetchone()
+            row = self.db.execute(
+                "SELECT rowid AS position FROM logs WHERE id = ?", (since_id,)
+            ).fetchone()
             if row:
                 position = row["position"]
             else:
-                saved = self.db.execute("SELECT value FROM anomaly_state WHERE key = 'last_processed_rowid'").fetchone()
+                saved = self.db.execute(
+                    "SELECT value FROM anomaly_state WHERE key = 'last_processed_rowid'"
+                ).fetchone()
                 position = int(saved["value"]) if saved else 0
         rows = self.db.execute(
             "SELECT id, timestamp, level, source, message, raw FROM logs WHERE rowid > ? ORDER BY rowid ASC LIMIT ?",
@@ -102,6 +106,28 @@ class LogRepository:
     def fetch_recent_logs(self, hours: float = 1.0, limit: int = 10000) -> list[LogEntry]:
         since = datetime.utcnow() - timedelta(hours=hours)
         return self.fetch_logs_by_timerange(since, datetime.utcnow(), limit)
+
+    def latest_window_error(self, start: datetime, end: datetime) -> str | None:
+        row = self.db.execute(
+            "SELECT id FROM logs WHERE lower(level) = 'error' AND timestamp >= ? "
+            "AND timestamp <= ? ORDER BY timestamp DESC, rowid DESC LIMIT 1",
+            (
+                start.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                end.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            ),
+        ).fetchone()
+        return row["id"] if row else None
+
+    def window_counts(self, start: datetime, end: datetime) -> dict[str, int]:
+        def utc_text(value: datetime) -> str:
+            return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+        rows = self.db.execute(
+            "SELECT lower(level) AS level, count(*) AS count FROM logs "
+            "WHERE timestamp >= ? AND timestamp <= ? GROUP BY lower(level)",
+            (utc_text(start), utc_text(end)),
+        ).fetchall()
+        return {row["level"]: row["count"] for row in rows}
 
     def get_log_count_by_level(self, since: datetime) -> dict[str, int]:
         rows = self.db.execute(
@@ -148,7 +174,9 @@ class LogRepository:
     def set_last_processed_id(self, log_id: str | None) -> None:
         with self.db.get_cursor() as cursor:
             if log_id is None:
-                cursor.execute("DELETE FROM anomaly_state WHERE key IN ('last_processed_id', 'last_processed_rowid')")
+                cursor.execute(
+                    "DELETE FROM anomaly_state WHERE key IN ('last_processed_id', 'last_processed_rowid')"
+                )
             else:
                 cursor.execute(
                     """
@@ -157,10 +185,25 @@ class LogRepository:
                     """,
                     (log_id, datetime.utcnow().isoformat()),
                 )
-                row = cursor.execute("SELECT rowid AS position FROM logs WHERE id = ?", (log_id,)).fetchone()
+                row = cursor.execute(
+                    "SELECT rowid AS position FROM logs WHERE id = ?", (log_id,)
+                ).fetchone()
                 if row:
-                    cursor.execute("INSERT OR REPLACE INTO anomaly_state VALUES ('last_processed_rowid', ?, ?)", (str(row["position"]), datetime.utcnow().isoformat()))
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO anomaly_state VALUES ('last_processed_rowid', ?, ?)",
+                        (str(row["position"]), datetime.utcnow().isoformat()),
+                    )
         self.db.commit()
+
+    def hourly_counts(self, hours: float) -> dict[str, int]:
+        end = datetime.now(UTC)
+        start = end.replace(minute=0, second=0, microsecond=0) - timedelta(hours=hours)
+        rows = self.db.execute(
+            "SELECT strftime('%Y-%m-%d %H:00', timestamp) AS hour, count(*) AS count "
+            "FROM logs WHERE timestamp >= ? AND timestamp <= ? GROUP BY hour",
+            (start.isoformat().replace("+00:00", "Z"), end.isoformat().replace("+00:00", "Z")),
+        ).fetchall()
+        return {row["hour"]: row["count"] for row in rows if row["hour"]}
 
     def get_volume_stats(self, hours: float = 24.0) -> dict[str, Any]:
         since = datetime.utcnow() - timedelta(hours=hours)

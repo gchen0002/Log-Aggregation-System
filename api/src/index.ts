@@ -18,8 +18,8 @@ async function stop() {
   if (closing) return;
   closing = true;
   monitor.stop();
-  const closed=new Promise<void>(resolve=>server.close(()=>resolve()));
-  await Promise.all([closed,ingestion.stop()]);
+  const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+  await Promise.all([closed, ingestion.stop()]);
   db.close();
 }
 process.on('SIGINT', () => void stop());

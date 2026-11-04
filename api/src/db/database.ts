@@ -7,5 +7,7 @@ export function openDatabase(file: string): Database.Database {
   db.pragma('journal_mode=WAL');
   db.pragma('synchronous=FULL');
   db.pragma('busy_timeout=10000');
+  db.pragma('cache_size=-32768');
+  db.pragma('wal_autocheckpoint=4096');
   return db;
 }

@@ -1,8 +1,8 @@
 #pragma once
 
-#include <string>
-#include <optional>
 #include <chrono>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace log_agent {
@@ -16,18 +16,18 @@ struct LogEntry {
 };
 
 class LogParser {
-public:
+  public:
     LogParser() = default;
-    
-    std::optional<LogEntry> parse(const std::string& line) const;
-    
-private:
-    std::optional<LogEntry> parseJson(const std::string& line) const;
-    std::optional<LogEntry> parsePlainText(const std::string& line) const;
-    
-    static std::string normalizeLevel(const std::string& level);
+
+    std::optional<LogEntry> parse(const std::string &line) const;
+
+  private:
+    std::optional<LogEntry> parseJson(const std::string &line) const;
+    std::optional<LogEntry> parsePlainText(const std::string &line) const;
+
+    static std::string normalizeLevel(const std::string &level);
     static std::string detectLevel(std::string_view line);
-    static std::chrono::system_clock::time_point parseTimestamp(const std::string& ts);
+    static std::chrono::system_clock::time_point parseTimestamp(const std::string &ts);
 };
 
-}  // namespace log_agent
+} // namespace log_agent

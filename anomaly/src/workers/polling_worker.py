@@ -1,7 +1,7 @@
 """Background polling worker for anomaly detection."""
 
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -10,6 +10,7 @@ from ..config import Settings
 from ..db.alert_repository import AlertRepository
 from ..db.log_repository import LogRepository
 from ..detectors.base import AnomalyResult, BaseDetector
+from ..detectors.statistical import ErrorBurstDetector, VolumeSpikeDetector
 
 logger = structlog.get_logger()
 
@@ -100,7 +101,20 @@ class PollingWorker:
                 continue
 
             try:
-                anomalies = detector.detect(logs)
+                if isinstance(detector, ErrorBurstDetector):
+                    end = datetime.now(UTC)
+                    counts = self.log_repo.window_counts(
+                        end - timedelta(minutes=detector.window_minutes), end
+                    )
+                    anomalies = detector.detect_counts(
+                        counts.get("error", 0), sum(counts.values()), window_end=end
+                    )
+                elif isinstance(detector, VolumeSpikeDetector):
+                    anomalies = detector.detect_hourly(
+                        self.log_repo.hourly_counts(detector.baseline_hours)
+                    )
+                else:
+                    anomalies = detector.detect(logs)
                 all_anomalies.extend(anomalies)
             except Exception as e:
                 logger.error(
@@ -123,8 +137,12 @@ class PollingWorker:
         )
 
     def _create_alert(self, anomaly: AnomalyResult) -> None:
+        pattern = {
+            "error_burst": "High error rate detected:",
+            "volume_spike": "Log volume spike detected:",
+        }.get(anomaly.anomaly_type, anomaly.message[:50])
         existing = self.alert_repo.find_recent_similar(
-            pattern=anomaly.message[:50],
+            pattern=pattern,
             severity=anomaly.severity,
             hours=self.settings.deduplication_window_hours,
         )
@@ -137,9 +155,22 @@ class PollingWorker:
             )
             return
 
+        anchor = anomaly.log_id
+        if anchor == "system":
+            if anomaly.anomaly_type == "error_burst" and anomaly.details:
+                end = datetime.fromisoformat(anomaly.details["window_end"])
+                anchor = self.log_repo.latest_window_error(
+                    end - timedelta(minutes=anomaly.details["window_minutes"]), end
+                )
+            else:
+                recent = self.log_repo.fetch_recent_logs(limit=1)
+                anchor = recent[0].id if recent else None
+            if not anchor:
+                return
+
         try:
             self.alert_repo.create(
-                log_id=(self.log_repo.fetch_recent_logs(limit=1)[0].id if anomaly.log_id == "system" else anomaly.log_id),
+                log_id=anchor,
                 severity=anomaly.severity,
                 message=anomaly.message,
                 details={**(anomaly.details or {}), "anomaly_type": anomaly.anomaly_type},

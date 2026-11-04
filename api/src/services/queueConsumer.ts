@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import { LogRepository } from '../db/logRepository';
 import { QueueService } from './queueService';
 import { LogEntry } from '../types/log';

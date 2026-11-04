@@ -43,7 +43,14 @@ class TestVolumeSpikeDetector:
     def test_detect_insufficient_logs(self):
         detector = VolumeSpikeDetector()
         logs = [
-            LogEntry(id="1", timestamp=datetime.utcnow().isoformat(), level="info", source="app", message="test", raw=None)
+            LogEntry(
+                id="1",
+                timestamp=datetime.utcnow().isoformat(),
+                level="info",
+                source="app",
+                message="test",
+                raw=None,
+            )
             for _ in range(5)
         ]
         result = detector.detect(logs)
@@ -65,7 +72,14 @@ class TestSourceAnomalyDetector:
     def test_detect_insufficient_logs(self):
         detector = SourceAnomalyDetector(min_logs_per_source=100)
         logs = [
-            LogEntry(id="1", timestamp=datetime.utcnow().isoformat(), level="info", source="app", message="test", raw=None)
+            LogEntry(
+                id="1",
+                timestamp=datetime.utcnow().isoformat(),
+                level="info",
+                source="app",
+                message="test",
+                raw=None,
+            )
             for _ in range(10)
         ]
         result = detector.detect(logs)
@@ -85,18 +99,37 @@ class TestSourceAnomalyDetector:
             )
             for i in range(90)
         ]
-        logs.extend([
-            LogEntry(
-                id=f"log-other-{i}",
-                timestamp=now.isoformat(),
-                level="info",
-                source="other",
-                message="test",
-                raw=None,
-            )
-            for i in range(10)
-        ])
+        logs.extend(
+            [
+                LogEntry(
+                    id=f"log-other-{i}",
+                    timestamp=now.isoformat(),
+                    level="info",
+                    source="other",
+                    message="test",
+                    raw=None,
+                )
+                for i in range(10)
+            ]
+        )
         result = detector.detect(logs)
         assert len(result) == 1
         assert result[0].anomaly_type == "source_anomaly"
         assert result[0].severity == "low"
+
+
+def test_volume_spike_compares_complete_historical_buckets():
+    from datetime import UTC, timedelta
+
+    now = datetime.now(UTC)
+    buckets = {
+        (now - timedelta(hours=i)).strftime("%Y-%m-%d %H:00"): count
+        for i, count in [(1, 100), (2, 110), (3, 90)]
+    }
+    buckets[now.strftime("%Y-%m-%d %H:00")] = 1000
+    detector = VolumeSpikeDetector()
+    result = detector.detect_hourly(buckets)
+    assert len(result) == 1
+    assert result[0].details["mean_count"] == 100
+    assert result[0].details["current_count"] == 1000
+    assert detector.detect_hourly({now.strftime("%Y-%m-%d %H:00"): 1000}) == []

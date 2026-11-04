@@ -1,0 +1,15 @@
+.git
+**/node_modules
+**/.next
+**/build
+**/.venv
+**/__pycache__
+**/dist
+**/coverage
+**/.test-data
+.runtime
+.cache
+.tools
+**/.env*
+**/*.db*
+**/*.log

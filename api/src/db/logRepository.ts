@@ -47,7 +47,7 @@ export class LogRepository {
       END;
       
       CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
-      CREATE INDEX IF NOT EXISTS idx_logs_time_row ON logs(timestamp DESC);
+      DROP INDEX IF EXISTS idx_logs_time_row;
       CREATE INDEX IF NOT EXISTS idx_logs_source_time ON logs(source,timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_logs_level_time ON logs(level,timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
@@ -309,10 +309,13 @@ export class LogRepository {
     }));
   }
 
-  getErrorCountSince(since: string, level: string = 'error'): number {
+  getErrorCountSince(since: string, level: string = 'error', until?: string): number {
     const result = this.db
-      .prepare('SELECT COUNT(*) as count FROM logs WHERE level = ? AND timestamp >= ?')
-      .get(level, since) as { count: number };
+      .prepare(
+        'SELECT COUNT(*) as count FROM logs WHERE level = ? AND timestamp >= ?' +
+          (until ? ' AND timestamp <= ?' : ''),
+      )
+      .get(...(until ? [level, since, until] : [level, since])) as { count: number };
 
     return result.count;
   }

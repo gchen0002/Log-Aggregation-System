@@ -66,6 +66,8 @@ async function main() {
         messages?: { id: string; lease: string; logs: unknown[] }[];
       };
       if (!Array.isArray(page.messages)) throw new Error('Invalid queue response');
+      const entries: LogEntry[] = [],
+        poison: { id: string; payload: string; reason: string }[] = [];
       for (const batch of page.messages) {
         if (
           typeof batch.id !== 'string' ||
@@ -74,8 +76,6 @@ async function main() {
           batch.logs.length > 4096
         )
           throw new Error('Invalid leased batch');
-        const entries: LogEntry[] = [];
-        const poison: { id: string; payload: string; reason: string }[] = [];
         batch.logs.forEach((value, index) => {
           try {
             entries.push(normalize(value, batch.id + ':' + index));
@@ -87,14 +87,25 @@ async function main() {
             });
           }
         });
-        db.transaction(() => {
-          const added = repo.insertDeliveredBatch(entries);
-          duplicates += entries.length - added;
+      }
+      if (page.messages.length) {
+        const result = db.transaction(() => {
+          const inserted = repo.insertDeliveredBatch(entries);
+          let quarantined = 0;
           for (const row of poison)
-            rejected.run(row.id, row.payload, row.reason, new Date().toISOString());
+            quarantined += rejected.run(
+              row.id,
+              row.payload,
+              row.reason,
+              new Date().toISOString(),
+            ).changes;
+          return { inserted, quarantined };
         })();
-        // Acknowledgment is fenced by a lease and follows the durable index commit.
-        await request('/api/logs/ack', { leases: [{ id: batch.id, lease: batch.lease }] });
+        duplicates += entries.length - result.inserted;
+        // Every lease is acknowledged only after all rows are committed.
+        await request('/api/logs/ack', {
+          leases: page.messages.map(({ id, lease }) => ({ id, lease })),
+        });
       }
       lastError = null;
       status();
