@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(log_pipeline VERSION 2.0 LANGUAGES C CXX)
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.0")
+  set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+endif()
 if(POLICY CMP0135)
   cmake_policy(SET CMP0135 NEW)
 endif()

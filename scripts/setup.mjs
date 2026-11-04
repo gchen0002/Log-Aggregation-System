@@ -10,7 +10,7 @@ await run(python, [
   'install',
   '-r',
   root + '/anomaly/requirements.txt',
-  'cmake>=3.18,<4',
+  'cmake>=4.2,<5',
 ]);
 await npm(['ci'], root + '/api');
 await npm(['ci'], root + '/frontend');
