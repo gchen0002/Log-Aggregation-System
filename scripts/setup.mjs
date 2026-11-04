@@ -3,7 +3,7 @@ import { run, npm, root, python, windows } from './runtime.mjs';
 if (Number(process.versions.node.split('.')[0]) < 22)
   throw new Error('Node 22 or newer is required.');
 if (!existsSync(python))
-  await run(windows ? 'py' : 'python3', ['-m', 'venv', root + '/anomaly/.venv']);
+  await run(windows ? 'python' : 'python3', ['-m', 'venv', root + '/anomaly/.venv']);
 await run(python, [
   '-m',
   'pip',
