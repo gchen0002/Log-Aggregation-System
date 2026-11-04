@@ -1,6 +1,6 @@
 {
-  "recordedAt": "2026-11-04T20:08:03.110Z",
-  "sourceCommit": "2967d6794b52f3bb213575768cac56bc6f84049c",
+  "recordedAt": "2026-11-04T20:53:51.200Z",
+  "sourceCommit": "4409a1b674a5658a1e45bcc4e0782eb88e319feb",
   "environment": {
     "os": "linux",
     "arch": "x64",
@@ -16,189 +16,159 @@
   },
   "bulk": {
     "logs": 100000,
-    "secondsIncludingStartup": 5.072276714,
-    "logsPerSecond": 19715.012732643278
+    "secondsIncludingStartup": 5.8206139839999995,
+    "logsPerSecond": 17180.31813737951
   },
   "searches": [
     {
       "label": "literal phrase",
       "endpoint": "/api/logs/page",
       "corpusLogs": 100000,
-      "p50Ms": 5.662088999999469,
-      "p95Ms": 7.285961000001407,
+      "p50Ms": 6.561682999999903,
+      "p95Ms": 18.204287000000477,
       "samples": 30
     },
     {
       "label": "common phrase",
       "endpoint": "/api/logs/page",
       "corpusLogs": 100000,
-      "p50Ms": 10.428068999999596,
-      "p95Ms": 18.45621299999948,
+      "p50Ms": 8.381303000000116,
+      "p95Ms": 12.149884000000384,
       "samples": 30
     },
     {
       "label": "source and level",
       "endpoint": "/api/logs/page",
       "corpusLogs": 100000,
-      "p50Ms": 4.132738000000245,
-      "p95Ms": 10.29707899999994,
+      "p50Ms": 3.181116000001566,
+      "p95Ms": 10.301226999999926,
       "samples": 30
     }
   ],
   "paced": {
     "offeredLogsPerSecond": 25000,
-    "generationSeconds": 30.293910371,
-    "indexedLogs": 757107,
-    "completionSeconds": 33.752669897,
-    "achievedLogsPerSecond": 22431.025525103516,
+    "generationSeconds": 33.890452072,
+    "indexedLogs": 609191,
+    "completionSeconds": 50.887192677,
+    "achievedLogsPerSecond": 11971.401210256627,
     "observations": [
       {
-        "elapsedSeconds": 1.0062202620000007,
-        "indexedLogs": 117096,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 2.030189282000001,
-        "indexedLogs": 143720,
+        "elapsedSeconds": 1.0127118200000005,
+        "indexedLogs": 117007,
         "pending": 2048
       },
       {
-        "elapsedSeconds": 3.038072269,
-        "indexedLogs": 170344,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 4.093426108,
-        "indexedLogs": 188776,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 5.1145548199999995,
-        "indexedLogs": 196968,
-        "pending": 10240
-      },
-      {
-        "elapsedSeconds": 6.123655025,
-        "indexedLogs": 227688,
-        "pending": 0
-      },
-      {
-        "elapsedSeconds": 7.132132926000002,
-        "indexedLogs": 250216,
+        "elapsedSeconds": 2.0271968099999995,
+        "indexedLogs": 141583,
         "pending": 2048
       },
       {
-        "elapsedSeconds": 8.144653877000001,
-        "indexedLogs": 270696,
+        "elapsedSeconds": 3.0371749230000007,
+        "indexedLogs": 166159,
+        "pending": 4096
+      },
+      {
+        "elapsedSeconds": 4.049653727999999,
+        "indexedLogs": 186639,
         "pending": 6144
       },
       {
-        "elapsedSeconds": 9.153065696000002,
-        "indexedLogs": 293224,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 10.162081140000002,
-        "indexedLogs": 317800,
+        "elapsedSeconds": 5.068857447999999,
+        "indexedLogs": 213263,
         "pending": 2048
       },
       {
-        "elapsedSeconds": 11.196635149000002,
-        "indexedLogs": 334184,
-        "pending": 12288
-      },
-      {
-        "elapsedSeconds": 12.339213306000001,
-        "indexedLogs": 358760,
-        "pending": 10240
-      },
-      {
-        "elapsedSeconds": 13.351240923,
-        "indexedLogs": 387432,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 14.371884712,
-        "indexedLogs": 409960,
-        "pending": 6144
-      },
-      {
-        "elapsedSeconds": 15.394790219999999,
-        "indexedLogs": 432488,
-        "pending": 14336
-      },
-      {
-        "elapsedSeconds": 16.416766071999998,
-        "indexedLogs": 463208,
+        "elapsedSeconds": 6.079629166999999,
+        "indexedLogs": 229647,
         "pending": 8192
       },
       {
-        "elapsedSeconds": 17.439989813,
-        "indexedLogs": 489832,
+        "elapsedSeconds": 7.090849967999999,
+        "indexedLogs": 250127,
+        "pending": 8192
+      },
+      {
+        "elapsedSeconds": 8.115580439,
+        "indexedLogs": 274703,
         "pending": 6144
       },
       {
-        "elapsedSeconds": 18.453844236000002,
-        "indexedLogs": 516456,
+        "elapsedSeconds": 9.161876719,
+        "indexedLogs": 295183,
+        "pending": 4096
+      },
+      {
+        "elapsedSeconds": 10.246604374999999,
+        "indexedLogs": 299279,
+        "pending": 16384
+      },
+      {
+        "elapsedSeconds": 11.260124928000002,
+        "indexedLogs": 313615,
+        "pending": 20480
+      },
+      {
+        "elapsedSeconds": 12.278511155,
+        "indexedLogs": 338191,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 13.307941877999998,
+        "indexedLogs": 362767,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 14.326951863999998,
+        "indexedLogs": 387343,
+        "pending": 14336
+      },
+      {
+        "elapsedSeconds": 15.35110513,
+        "indexedLogs": 411919,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 16.362766301,
+        "indexedLogs": 434447,
+        "pending": 8192
+      },
+      {
+        "elapsedSeconds": 17.387248008,
+        "indexedLogs": 461071,
         "pending": 2048
       },
       {
-        "elapsedSeconds": 19.470290584999997,
-        "indexedLogs": 536936,
-        "pending": 6144
+        "elapsedSeconds": 18.417125076,
+        "indexedLogs": 481551,
+        "pending": 2048
       },
       {
-        "elapsedSeconds": 20.481464364,
-        "indexedLogs": 559464,
-        "pending": 6144
-      },
-      {
-        "elapsedSeconds": 21.527676582,
-        "indexedLogs": 577896,
+        "elapsedSeconds": 19.448029199,
+        "indexedLogs": 493839,
         "pending": 10240
       },
       {
-        "elapsedSeconds": 22.566759427,
-        "indexedLogs": 606568,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 23.580766411999996,
-        "indexedLogs": 633192,
+        "elapsedSeconds": 20.466287289,
+        "indexedLogs": 522511,
         "pending": 2048
       },
       {
-        "elapsedSeconds": 24.601656901000002,
-        "indexedLogs": 653672,
-        "pending": 6144
+        "elapsedSeconds": 21.497125583000003,
+        "indexedLogs": 530703,
+        "pending": 12288
       },
       {
-        "elapsedSeconds": 25.629232811,
-        "indexedLogs": 680296,
-        "pending": 2048
+        "elapsedSeconds": 25.588940094,
+        "indexedLogs": 538895,
+        "pending": 10240
       },
       {
-        "elapsedSeconds": 26.645080833,
-        "indexedLogs": 704872,
-        "pending": 2048
-      },
-      {
-        "elapsedSeconds": 27.672019614999996,
-        "indexedLogs": 729448,
-        "pending": 2048
-      },
-      {
-        "elapsedSeconds": 29.204645691,
-        "indexedLogs": 749928,
-        "pending": 4096
-      },
-      {
-        "elapsedSeconds": 30.292925046999997,
-        "indexedLogs": 772456,
-        "pending": 0
+        "elapsedSeconds": 33.880612576,
+        "indexedLogs": 545039,
+        "pending": 14336
       }
     ],
     "drained": true
   },
-  "dataDirectory": "/workspace/Log-Aggregation-System/.runtime/bench-cGlA9W"
+  "dataDirectory": "/workspace/Log-Aggregation-System/.runtime/bench-i09Wzr"
 }

@@ -80,19 +80,21 @@ GitHub Actions builds and runs the same entrypoints on Ubuntu and Windows, plus 
 
 Benchmark output is written to `benchmarks/latest.json`, with per-run artifacts under `.runtime/bench-*`. Results include HTTP search p50/p95, bulk startup time, paced delivery including drain time, queue observations, environment, and durability settings. The benchmark excludes the UI and anomaly detector. Performance depends on disk, CPU, workload, phrase frequency, and concurrent activity; use recorded measurements rather than treating the simulator's offered rate as achieved throughput.
 
-### Recorded VM benchmark
+### Recorded VM benchmarks
 
-The 2026-11-04 run measured **22,431 indexed logs/sec** for 757,107 logs offered over 30.3 seconds, including the final drain (33.8 seconds total). Both SQLite stores used WAL with `synchronous=FULL`; the UI and detector were excluded from this throughput run.
+The latest post-review run measured **11,971 indexed logs/sec** for 609,191 logs generated over 33.9 seconds, including the final drain (50.9 seconds total). Both SQLite stores used WAL with `synchronous=FULL`; the UI and detector were excluded.
 
 Searches returned 50 rows over HTTP on a 100K-log corpus, with five warmups and 30 timed requests per case:
 
-| Query                                 |  Median |     p95 |
-| ------------------------------------- | ------: | ------: |
-| Literal phrase (`connection timeout`) |  5.7 ms |  7.3 ms |
-| Common phrase (`request completed`)   | 10.4 ms | 18.5 ms |
-| Phrase + source + level               |  4.1 ms | 10.3 ms |
+| Query            | Median |     p95 |
+| ---------------- | -----: | ------: |
+| literal phrase   | 6.6 ms | 18.2 ms |
+| common phrase    | 8.4 ms | 12.1 ms |
+| source and level | 3.2 ms | 10.3 ms |
 
-The separate 100K bulk run took 5.1 seconds including service startup (19.7K logs/sec). These are short local VM measurements, not a long-running capacity guarantee. The JSON report records the tested source commit and observations.
+The separate 100K bulk run took 5.8 seconds including startup (17.2K logs/sec). An earlier revision measured 22.4K logs/sec; its report is preserved in `benchmarks/before-normalization.json`. The initial normalization run is also retained in `benchmarks/normalization-initial.json`.
+
+These short VM runs do not isolate normalization overhead from VM load and storage variability, and the earlier throughput is not a guarantee for the current revision. All reports retain their tested source commits and observations. Use `benchmarks/latest.json` for the latest measurement.
 
 ## Docker
 
