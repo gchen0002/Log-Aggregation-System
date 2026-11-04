@@ -20,7 +20,7 @@ npm run dev
 
 Open **http://localhost:3001**. The command builds the native executables and API, starts the queue, agent, indexer, detector, and UI, then generates 5,000 logs/sec. Ctrl+C stops the processes it owns. Startup refuses occupied ports; it does not terminate unrelated processes. The first native build downloads pinned dependency releases and takes longer.
 
-No BAT startup sequence is required. Earlier component launchers and source files are retained for reference; the root commands use the current pipeline.
+A generator write failure stops the owned stack and exits with an error. No BAT startup sequence is required. Earlier component launchers and source files are retained for reference; the root commands use the current pipeline.
 
 ```sh
 npm run dev -- --rate=20000
@@ -80,12 +80,28 @@ GitHub Actions builds and runs the same entrypoints on Ubuntu and Windows, plus 
 
 Benchmark output is written to `benchmarks/latest.json`, with per-run artifacts under `.runtime/bench-*`. Results include HTTP search p50/p95, bulk startup time, paced delivery including drain time, queue observations, environment, and durability settings. The benchmark excludes the UI and anomaly detector. Performance depends on disk, CPU, workload, phrase frequency, and concurrent activity; use recorded measurements rather than treating the simulator's offered rate as achieved throughput.
 
+### Recorded VM benchmark
+
+The 2026-11-04 run measured **22,431 indexed logs/sec** for 757,107 logs offered over 30.3 seconds, including the final drain (33.8 seconds total). Both SQLite stores used WAL with `synchronous=FULL`; the UI and detector were excluded from this throughput run.
+
+Searches returned 50 rows over HTTP on a 100K-log corpus, with five warmups and 30 timed requests per case:
+
+| Query                                 |  Median |     p95 |
+| ------------------------------------- | ------: | ------: |
+| Literal phrase (`connection timeout`) |  5.7 ms |  7.3 ms |
+| Common phrase (`request completed`)   | 10.4 ms | 18.5 ms |
+| Phrase + source + level               |  4.1 ms | 10.3 ms |
+
+The separate 100K bulk run took 5.1 seconds including service startup (19.7K logs/sec). These are short local VM measurements, not a long-running capacity guarantee. The JSON report records the tested source commit and observations.
+
 ## Docker
 
 ```sh
 docker compose -f docker/docker-compose.yml build
 docker compose -f docker/docker-compose.yml up -d --wait
 ```
+
+Run `node scripts/docker-smoke.mjs` against the started stack to verify production pages, live file ingestion, FTS filters, and the detector proxy. `SIM_RATE` controls container simulation rate (default 5,000 logs/sec).
 
 Open http://localhost:3001. The stack includes the simulator and uses named volumes for events and databases. Only the UI port is published, on loopback. Images run the services without root privileges.
 
