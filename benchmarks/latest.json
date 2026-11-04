@@ -1,0 +1,174 @@
+{
+  "recordedAt": "2026-11-04T20:53:51.200Z",
+  "sourceCommit": "4409a1b674a5658a1e45bcc4e0782eb88e319feb",
+  "environment": {
+    "os": "linux",
+    "arch": "x64",
+    "node": "v22.23.4",
+    "logicalCpus": 5
+  },
+  "durability": {
+    "queue": "WAL / synchronous FULL",
+    "index": "WAL / synchronous FULL",
+    "acknowledgment": "After durable index commit",
+    "pipeline": "File → C++20 agent → C++20 queue → indexing worker → SQLite FTS5",
+    "uiAndDetectorIncluded": false
+  },
+  "bulk": {
+    "logs": 100000,
+    "secondsIncludingStartup": 5.8206139839999995,
+    "logsPerSecond": 17180.31813737951
+  },
+  "searches": [
+    {
+      "label": "literal phrase",
+      "endpoint": "/api/logs/page",
+      "corpusLogs": 100000,
+      "p50Ms": 6.561682999999903,
+      "p95Ms": 18.204287000000477,
+      "samples": 30
+    },
+    {
+      "label": "common phrase",
+      "endpoint": "/api/logs/page",
+      "corpusLogs": 100000,
+      "p50Ms": 8.381303000000116,
+      "p95Ms": 12.149884000000384,
+      "samples": 30
+    },
+    {
+      "label": "source and level",
+      "endpoint": "/api/logs/page",
+      "corpusLogs": 100000,
+      "p50Ms": 3.181116000001566,
+      "p95Ms": 10.301226999999926,
+      "samples": 30
+    }
+  ],
+  "paced": {
+    "offeredLogsPerSecond": 25000,
+    "generationSeconds": 33.890452072,
+    "indexedLogs": 609191,
+    "completionSeconds": 50.887192677,
+    "achievedLogsPerSecond": 11971.401210256627,
+    "observations": [
+      {
+        "elapsedSeconds": 1.0127118200000005,
+        "indexedLogs": 117007,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 2.0271968099999995,
+        "indexedLogs": 141583,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 3.0371749230000007,
+        "indexedLogs": 166159,
+        "pending": 4096
+      },
+      {
+        "elapsedSeconds": 4.049653727999999,
+        "indexedLogs": 186639,
+        "pending": 6144
+      },
+      {
+        "elapsedSeconds": 5.068857447999999,
+        "indexedLogs": 213263,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 6.079629166999999,
+        "indexedLogs": 229647,
+        "pending": 8192
+      },
+      {
+        "elapsedSeconds": 7.090849967999999,
+        "indexedLogs": 250127,
+        "pending": 8192
+      },
+      {
+        "elapsedSeconds": 8.115580439,
+        "indexedLogs": 274703,
+        "pending": 6144
+      },
+      {
+        "elapsedSeconds": 9.161876719,
+        "indexedLogs": 295183,
+        "pending": 4096
+      },
+      {
+        "elapsedSeconds": 10.246604374999999,
+        "indexedLogs": 299279,
+        "pending": 16384
+      },
+      {
+        "elapsedSeconds": 11.260124928000002,
+        "indexedLogs": 313615,
+        "pending": 20480
+      },
+      {
+        "elapsedSeconds": 12.278511155,
+        "indexedLogs": 338191,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 13.307941877999998,
+        "indexedLogs": 362767,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 14.326951863999998,
+        "indexedLogs": 387343,
+        "pending": 14336
+      },
+      {
+        "elapsedSeconds": 15.35110513,
+        "indexedLogs": 411919,
+        "pending": 18432
+      },
+      {
+        "elapsedSeconds": 16.362766301,
+        "indexedLogs": 434447,
+        "pending": 8192
+      },
+      {
+        "elapsedSeconds": 17.387248008,
+        "indexedLogs": 461071,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 18.417125076,
+        "indexedLogs": 481551,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 19.448029199,
+        "indexedLogs": 493839,
+        "pending": 10240
+      },
+      {
+        "elapsedSeconds": 20.466287289,
+        "indexedLogs": 522511,
+        "pending": 2048
+      },
+      {
+        "elapsedSeconds": 21.497125583000003,
+        "indexedLogs": 530703,
+        "pending": 12288
+      },
+      {
+        "elapsedSeconds": 25.588940094,
+        "indexedLogs": 538895,
+        "pending": 10240
+      },
+      {
+        "elapsedSeconds": 33.880612576,
+        "indexedLogs": 545039,
+        "pending": 14336
+      }
+    ],
+    "drained": true
+  },
+  "dataDirectory": "/workspace/Log-Aggregation-System/.runtime/bench-i09Wzr"
+}

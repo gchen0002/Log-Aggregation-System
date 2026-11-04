@@ -1,79 +1,75 @@
 services:
-  agent:
-    build:
-      context: ../agent
-      dockerfile: ../docker/Dockerfile.agent
-    volumes:
-      - ../data/logs:/var/log/app
-    depends_on:
-      - queue
-    networks:
-      - log-network
-
   queue:
     build:
-      context: ../queue
-      dockerfile: ../docker/Dockerfile.queue
-    ports:
-      - "8081:8081"
-    volumes:
-      - ../data/queue:/data
-    networks:
-      - log-network
-
+      context: ..
+      dockerfile: docker/Dockerfile.native
+    volumes: [queue-data:/data]
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:8081/health]
+      interval: 2s
+      timeout: 2s
+      retries: 30
   api:
     build:
-      context: ../api
-      dockerfile: ../docker/Dockerfile.api
-    ports:
-      - "3000:3000"
-    volumes:
-      - ../data/db:/app/data
-    depends_on:
-      - queue
-    networks:
-      - log-network
+      context: ..
+      dockerfile: docker/Dockerfile.api
     environment:
-      - NODE_ENV=production
-      - QUEUE_URL=http://queue:8081
-      - DB_PATH=/app/data/logs.db
-
+      QUEUE_URL: http://queue:8081
+      DB_PATH: /data/logs.db
+      HOST: 0.0.0.0
+    volumes: [log-data:/data]
+    depends_on:
+      queue: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  simulator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      SIM_RATE: ${SIM_RATE:-5000}
+    command: [node, --input-type=module, -e, "import {generate} from './simulator.mjs'; await generate('/events/events.ndjson',{rate:Number(process.env.SIM_RATE)});"]
+    volumes: [events:/events]
+  agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.native
+    command: [log_agent, --file, /events/events.ndjson, --checkpoint, /data/agent.json, --queue-host, queue, --queue-port, '8081']
+    volumes: [events:/events, agent-state:/data]
+    depends_on:
+      queue: {condition: service_healthy}
   anomaly:
     build:
-      context: ../anomaly
-      dockerfile: ../docker/Dockerfile.anomaly
-    ports:
-      - "5000:5000"
-    volumes:
-      - ../data/db:/app/data
-    depends_on:
-      - api
-    networks:
-      - log-network
+      context: ..
+      dockerfile: docker/Dockerfile.anomaly
     environment:
-      - DB_PATH=/app/data/logs.db
-      - MODEL_PATH=/app/data/anomaly_model.pkl
-      - POLL_INTERVAL_SECONDS=30
-      - LOG_LEVEL=INFO
-
+      POLL_INTERVAL_SECONDS: '2'
+      BATCH_SIZE: '5000'
+    volumes: [log-data:/data]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=1)"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
   frontend:
     build:
-      context: ../frontend
-      dockerfile: ../docker/Dockerfile.frontend
-    ports:
-      - "3001:3000"
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    ports: ['127.0.0.1:3001:3001']
     depends_on:
-      - api
-    networks:
-      - log-network
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:3000
-
-networks:
-  log-network:
-    driver: bridge
-
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
 volumes:
-  logs:
-  queue:
-  db:
+  queue-data:
+  log-data:
+  events:
+  agent-state:

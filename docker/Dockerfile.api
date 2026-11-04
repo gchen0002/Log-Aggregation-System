@@ -1,26 +1,20 @@
-FROM node:20-alpine as builder
-
+# syntax=docker/dockerfile:1
+FROM node:22-bookworm-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY tsconfig.json ./
-COPY scripts/ scripts/
-COPY src/ src/
-
-RUN npm run build
-
-FROM node:20-alpine
-
+COPY api/package*.json ./
+RUN --mount=type=secret,id=ca_bundle \
+    if [ -s /run/secrets/ca_bundle ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca_bundle; fi; npm ci
+COPY api/src src
+COPY api/tsconfig.json ./
+RUN npm run build && npm prune --omit=dev
+FROM node:22-bookworm-slim
 WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/scripts ./scripts
-
-EXPOSE 3000
-
-CMD ["npm", "start"]
+COPY --from=build --chown=node:node /app/node_modules node_modules
+COPY --from=build --chown=node:node /app/dist dist
+COPY --from=build --chown=node:node /app/package.json ./
+COPY --chown=node:node scripts/simulator.mjs ./
+RUN mkdir -p /data /events && chown node:node /data /events
+ENV NODE_ENV=production HOST=0.0.0.0 DB_PATH=/data/logs.db
+USER node
+CMD ["node","dist/index.js"]

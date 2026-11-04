@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import { AlertRepository } from '../db/alertRepository';
 import { LogRepository } from '../db/logRepository';
 import { Alert } from '../types/log';
@@ -26,17 +26,17 @@ export class AlertService {
   constructor(
     alertRepo: AlertRepository,
     logRepo: LogRepository,
-    config: Partial<AlertConfig> = {}
+    config: Partial<AlertConfig> = {},
   ) {
     this.alertRepo = alertRepo;
     this.logRepo = logRepo;
     this.config = {
       errorRate: {
         errorsPerMinute: 10,
-        windowMinutes: 5
+        windowMinutes: 5,
       },
       enabled: true,
-      ...config
+      ...config,
     };
     this.lastCheck = new Date();
     this.checkInterval = 60000; // Check every minute
@@ -92,27 +92,45 @@ export class AlertService {
       return;
     }
 
+    const windowEnd = new Date().toISOString();
     const windowStart = new Date(
-      Date.now() - this.config.errorRate.windowMinutes * 60 * 1000
+      Date.parse(windowEnd) - this.config.errorRate.windowMinutes * 60 * 1000,
     ).toISOString();
 
-    const errorCount = this.logRepo.getErrorCountSince(windowStart);
+    const errorCount = this.logRepo.getErrorCountSince(windowStart, 'error', windowEnd);
     const errorsPerMinute = errorCount / this.config.errorRate.windowMinutes;
 
     if (errorsPerMinute > this.config.errorRate.errorsPerMinute) {
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const existingAlert = this.alertRepo.findRecentUnacknowledged('high', 'error_rate', since);
-      
+      const existingAlert = this.alertRepo.findRecentUnacknowledged(
+        'high',
+        'High error rate detected:',
+        since,
+      );
+
       if (!existingAlert) {
-        this.createErrorRateAlert(errorCount, errorsPerMinute);
+        this.createErrorRateAlert(errorCount, errorsPerMinute, windowEnd);
       }
     }
   }
 
-  private createErrorRateAlert(errorCount: number, errorsPerMinute: number): void {
+  private createErrorRateAlert(
+    errorCount: number,
+    errorsPerMinute: number,
+    windowEnd: string,
+  ): void {
+    const anchor = this.logRepo.searchPage({
+      level: 'error',
+      startDate: new Date(
+        Date.parse(windowEnd) - this.config.errorRate.windowMinutes * 60000,
+      ).toISOString(),
+      endDate: windowEnd,
+      limit: 1,
+    }).logs[0];
+    if (!anchor) return;
     const alert: Alert = {
       id: uuidv4(),
-      logId: 'system',
+      logId: anchor.id,
       severity: 'high',
       message: `High error rate detected: ${errorsPerMinute.toFixed(2)} errors/minute (${errorCount} errors in ${this.config.errorRate.windowMinutes} minutes)`,
       details: {
@@ -120,10 +138,11 @@ export class AlertService {
         errorsPerMinute,
         windowMinutes: this.config.errorRate.windowMinutes,
         threshold: this.config.errorRate.errorsPerMinute,
-        type: 'error_rate'
+        type: 'error_rate',
+        window_end: windowEnd,
       },
       createdAt: new Date().toISOString(),
-      acknowledged: false
+      acknowledged: false,
     };
 
     this.alertRepo.create(alert);
@@ -134,7 +153,7 @@ export class AlertService {
     const fullAlert: Alert = {
       ...alert,
       id: uuidv4(),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     this.alertRepo.create(fullAlert);
@@ -158,7 +177,7 @@ export class AlertService {
     return {
       isRunning: this.isRunning,
       lastCheck: this.lastCheck,
-      config: this.getConfig()
+      config: this.getConfig(),
     };
   }
 }

@@ -34,6 +34,8 @@ export interface Alert {
 }
 
 export interface AlertFilter {
+  q?: string;
+  source?: string;
   severity?: string;
   acknowledged?: boolean;
   limit?: number;
@@ -44,6 +46,7 @@ export interface AlertStats {
   total: number;
   bySeverity: Record<string, number>;
   unacknowledged: number;
+  openBySeverity: Record<string, number>;
 }
 
 export interface QueueMessage {

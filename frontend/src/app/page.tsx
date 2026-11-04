@@ -1,9 +1,9 @@
-import LogDashboard from '@/components/LogDashboard';
-
-export default function Home() {
+import { Suspense } from 'react';
+import ExplorePage from '../components/ExplorePage';
+export default function Page() {
   return (
-    <main className="app-shell">
-      <LogDashboard />
-    </main>
+    <Suspense fallback={<div className="empty-state">Loading workspace…</div>}>
+      <ExplorePage />
+    </Suspense>
   );
 }

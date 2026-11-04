@@ -38,13 +38,25 @@ class ErrorBurstDetector(BaseDetector):
                 log_time = datetime.fromisoformat(ts)
                 if log_time.tzinfo is None:
                     log_time = log_time.replace(tzinfo=UTC)
-                if log_time >= cutoff:
+                if cutoff <= log_time <= datetime.now(UTC):
                     total_recent += 1
                     if log.level.lower() == "error":
                         recent_errors += 1
             except (ValueError, AttributeError):
                 continue
 
+        return self.detect_counts(recent_errors, total_recent, record_run=False)
+
+    def detect_counts(
+        self,
+        recent_errors: int,
+        total_recent: int,
+        *,
+        record_run: bool = True,
+        window_end: datetime | None = None,
+    ) -> list[AnomalyResult]:
+        if record_run:
+            self._record_run()
         if total_recent == 0:
             return []
 
@@ -62,6 +74,7 @@ class ErrorBurstDetector(BaseDetector):
                     "errors_per_minute": errors_per_minute,
                     "threshold": self.error_rate_threshold,
                     "window_minutes": self.window_minutes,
+                    "window_end": (window_end or datetime.now(UTC)).isoformat(),
                 },
             )
             self._record_alerts(1)
@@ -102,17 +115,23 @@ class VolumeSpikeDetector(BaseDetector):
             except (ValueError, AttributeError):
                 continue
 
-        if len(hourly_counts) < 2:
+        return self.detect_hourly(hourly_counts, record_run=False)
+
+    def detect_hourly(
+        self, hourly_counts: dict[str, int], *, record_run: bool = True
+    ) -> list[AnomalyResult]:
+        if record_run:
+            self._record_run()
+        current_hour = datetime.now(UTC).strftime("%Y-%m-%d %H:00")
+        # Compare with completed hours; including the spike in its own baseline
+        # suppresses the score. Require real historical observations first.
+        counts = [count for hour, count in hourly_counts.items() if hour < current_hour]
+        if len(counts) < 2:
             return []
-
-        counts = list(hourly_counts.values())
         mean_count = statistics.mean(counts)
-        std_count = statistics.stdev(counts) if len(counts) > 1 else 0
-
+        std_count = statistics.stdev(counts)
         if std_count == 0:
             return []
-
-        current_hour = datetime.now(UTC).strftime("%Y-%m-%d %H:00")
         current_count = hourly_counts.get(current_hour, 0)
         z_score = (current_count - mean_count) / std_count
 

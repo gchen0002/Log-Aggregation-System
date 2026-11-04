@@ -4,25 +4,37 @@ import { AlertService } from '../services/alertService';
 import { AlertFilter } from '../types/log';
 import { parseQueryInt } from '../utils/queryHelpers';
 
-export function createAlertsRouter(
-  alertRepo: AlertRepository,
-  alertService: AlertService
-): Router {
+export function createAlertsRouter(alertRepo: AlertRepository, alertService: AlertService): Router {
   const router = Router();
 
   // GET /api/alerts - List alerts
   router.get('/', (req: Request, res: Response) => {
     try {
+      for (const key of ['q', 'source', 'severity', 'acknowledged'])
+        if (req.query[key] !== undefined && typeof req.query[key] !== 'string') {
+          res.status(400).json({ error: 'Invalid alert filter' });
+          return;
+        }
+      if (
+        (typeof req.query.q === 'string' && req.query.q.length > 10000) ||
+        (typeof req.query.source === 'string' && req.query.source.length > 500) ||
+        (req.query.acknowledged !== undefined &&
+          !['true', 'false'].includes(String(req.query.acknowledged)))
+      ) {
+        res.status(400).json({ error: 'Invalid alert filter' });
+        return;
+      }
       const limit = parseQueryInt(req.query.limit as string, 50, 1, 1000);
       const offset = parseQueryInt(req.query.offset as string, 0, 0);
 
       const filter: AlertFilter = {
+        q: req.query.q as string | undefined,
+        source: req.query.source as string | undefined,
         severity: req.query.severity as string | undefined,
-        acknowledged: req.query.acknowledged !== undefined 
-          ? req.query.acknowledged === 'true' 
-          : undefined,
+        acknowledged:
+          req.query.acknowledged !== undefined ? req.query.acknowledged === 'true' : undefined,
         limit,
-        offset
+        offset,
       };
 
       const result = alertRepo.findAll(filter);
@@ -30,7 +42,7 @@ export function createAlertsRouter(
         alerts: result.alerts,
         total: result.total,
         limit,
-        offset
+        offset,
       });
     } catch (error) {
       console.error('Error fetching alerts:', error);
@@ -43,14 +55,14 @@ export function createAlertsRouter(
     try {
       const stats = alertRepo.getStats();
       const serviceStatus = alertService.getStatus();
-      
+
       res.json({
         ...stats,
         monitoring: {
           isRunning: serviceStatus.isRunning,
           lastCheck: serviceStatus.lastCheck,
-          config: serviceStatus.config
-        }
+          config: serviceStatus.config,
+        },
       });
     } catch (error) {
       console.error('Error fetching alert stats:', error);
@@ -62,7 +74,7 @@ export function createAlertsRouter(
   router.get('/:id', (req: Request, res: Response) => {
     try {
       const alert = alertRepo.findById(req.params.id);
-      
+
       if (!alert) {
         res.status(404).json({ error: 'Alert not found' });
         return;
@@ -79,7 +91,7 @@ export function createAlertsRouter(
   router.post('/:id/acknowledge', (req: Request, res: Response) => {
     try {
       const success = alertRepo.acknowledge(req.params.id);
-      
+
       if (!success) {
         res.status(404).json({ error: 'Alert not found' });
         return;
@@ -96,12 +108,12 @@ export function createAlertsRouter(
   router.delete('/', (req: Request, res: Response) => {
     try {
       const days = parseInt(req.query.olderThanDays as string) || 30;
-      
+
       if (days <= 0) {
         res.status(400).json({ error: 'olderThanDays must be a positive number' });
         return;
       }
-      
+
       const deleted = alertRepo.deleteOldAlerts(days);
       res.json({ deleted, olderThanDays: days });
     } catch (error) {

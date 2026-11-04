@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import { LogRepository } from '../db/logRepository';
 import { QueueService } from './queueService';
 import { LogEntry } from '../types/log';
@@ -24,11 +24,7 @@ export class QueueConsumer {
   private failedMessageIds: Map<number, number> = new Map(); // id -> timestamp
   private readonly MAX_FAILED_IDS = 10000;
 
-  constructor(
-    logRepo: LogRepository,
-    queueService: QueueService,
-    pollInterval: number = 5000
-  ) {
+  constructor(logRepo: LogRepository, queueService: QueueService, pollInterval: number = 5000) {
     this.logRepo = logRepo;
     this.queueService = queueService;
     this.pollInterval = pollInterval;
@@ -72,7 +68,7 @@ export class QueueConsumer {
       if (messages.length > 0) {
         console.log(`[QueueConsumer] Fetched ${messages.length} messages from queue`);
         const entries = this.parseMessages(messages);
-        
+
         if (entries.length > 0) {
           try {
             const inserted = this.logRepo.insertBatch(entries);
@@ -82,13 +78,16 @@ export class QueueConsumer {
             throw insertError; // Re-throw to trigger retry logic
           }
         }
-        
+
         this.consecutiveErrors = 0;
       }
     } catch (error) {
       this.consecutiveErrors++;
-      console.error(`[QueueConsumer] Error processing batch (attempt ${this.consecutiveErrors}):`, error);
-      
+      console.error(
+        `[QueueConsumer] Error processing batch (attempt ${this.consecutiveErrors}):`,
+        error,
+      );
+
       if (this.consecutiveErrors >= this.maxConsecutiveErrors) {
         console.error('[QueueConsumer] Too many consecutive errors, stopping consumer');
         this.pollLock = false;
@@ -153,7 +152,7 @@ export class QueueConsumer {
       level: normalizeLevel(raw.level),
       source: raw.source || 'unknown',
       message: raw.message || JSON.stringify(raw),
-      raw: JSON.stringify(raw)
+      raw: JSON.stringify(raw),
     };
   }
 
@@ -178,7 +177,7 @@ export class QueueConsumer {
   getStatus(): { isRunning: boolean; consecutiveErrors: number } {
     return {
       isRunning: this.isRunning,
-      consecutiveErrors: this.consecutiveErrors
+      consecutiveErrors: this.consecutiveErrors,
     };
   }
 }

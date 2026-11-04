@@ -94,4 +94,9 @@ AGENTS.md
 
 start-local.bat
 stop-local.bat
-scripts/
+
+# Runtime data and local verification artifacts
+.runtime/
+.tools/
+*.db-wal
+*.db-shm

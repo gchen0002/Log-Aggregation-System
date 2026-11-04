@@ -17,7 +17,14 @@ class TestLogRepository:
                 INSERT INTO logs (id, timestamp, level, source, message, raw)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (f"log-{i}", (now - timedelta(minutes=i)).isoformat(), "info", "app", f"Message {i}", None),
+                (
+                    f"log-{i}",
+                    (now - timedelta(minutes=i)).isoformat(),
+                    "info",
+                    "app",
+                    f"Message {i}",
+                    None,
+                ),
             )
         log_repo.db.commit()
 
@@ -32,7 +39,14 @@ class TestLogRepository:
                 INSERT INTO logs (id, timestamp, level, source, message, raw)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (f"log-{i}", (now - timedelta(minutes=i)).isoformat(), "info", "app", f"Message {i}", None),
+                (
+                    f"log-{i}",
+                    (now - timedelta(minutes=i)).isoformat(),
+                    "info",
+                    "app",
+                    f"Message {i}",
+                    None,
+                ),
             )
         log_repo.db.commit()
 
@@ -58,7 +72,14 @@ class TestLogRepository:
                 INSERT INTO logs (id, timestamp, level, source, message, raw)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (f"log-{i}", (now - timedelta(minutes=i)).isoformat(), level, "app", f"Message {i}", None),
+                (
+                    f"log-{i}",
+                    (now - timedelta(minutes=i)).isoformat(),
+                    level,
+                    "app",
+                    f"Message {i}",
+                    None,
+                ),
             )
         log_repo.db.commit()
 
@@ -159,3 +180,17 @@ class TestAlertRepository:
 
         alerts = alert_repo.get_recent_alerts(hours=1.0, limit=3)
         assert len(alerts) == 3
+
+
+def test_incremental_cursor_follows_insertion_not_uuid_order(log_repo):
+    for key in ["z-first", "a-second", "m-third"]:
+        log_repo.db.execute(
+            "INSERT INTO logs VALUES (?, ?, 'info', 'app', 'event', NULL)",
+            (key, datetime.utcnow().isoformat()),
+        )
+    log_repo.db.commit()
+    log_repo.set_last_processed_id("z-first")
+    assert [log.id for log in log_repo.fetch_logs_since("z-first")] == ["a-second", "m-third"]
+    log_repo.db.execute("DELETE FROM logs WHERE id = 'z-first'")
+    log_repo.db.commit()
+    assert [log.id for log in log_repo.fetch_logs_since("z-first")] == ["a-second", "m-third"]

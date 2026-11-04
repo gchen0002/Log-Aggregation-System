@@ -1,233 +1,101 @@
-#include <iostream>
-#include <csignal>
-#include <atomic>
-#include <thread>
-#include <chrono>
-#include <sstream>
-#include <vector>
-#include <string>
-#include <filesystem>
-#include <stdexcept>
-
-#include <nlohmann/json.hpp>
-
+#include "../../native/include/common.hpp"
 #include "../include/sqlite_queue.hpp"
-#include "../include/http_server.hpp"
-
-namespace {
-    volatile sig_atomic_t g_shutdown_requested = 0;
-    constexpr auto kCleanupInterval = std::chrono::hours(1);
-    constexpr size_t MAX_JSON_BATCH_SIZE = 1000;  // Maximum items in JSON array
-    
-    // Validate database path to prevent path traversal
-    bool isPathSafe(const std::string& path) {
-        try {
-            std::filesystem::path p = std::filesystem::absolute(path);
-            std::filesystem::path cwd = std::filesystem::current_path();
-            
-            // Check if path is within current working directory or a subdirectory
-            std::string p_str = p.string();
-            std::string cwd_str = cwd.string();
-            
-            // Path must start with cwd
-            if (p_str.find(cwd_str) != 0) {
-                return false;
-            }
-            
-            // Check for ".." in the path
-            for (const auto& part : p) {
-                if (part == "..") {
-                    return false;
-                }
-            }
-            
-            return true;
-        } catch (...) {
-            return false;
-        }
-    }
-    
-    void signalHandler(int) {
-        g_shutdown_requested = 1;
-    }
-}
-
-int main(int argc, char* argv[]) {
+#include <httplib.h>
+using namespace pipeline;
+int main(int argc, char **argv) {
     try {
-        // Default config
-        int port = 8080;
-        std::string dbPath = "./data/queue.db";
-        
-        // Parse simple args with validation
-        for (int i = 1; i < argc; ++i) {
-            std::string arg = argv[i];
-            if (arg == "--port") {
-                if (i + 1 >= argc) {
-                    std::cerr << "Error: --port requires a value" << std::endl;
-                    return 1;
-                }
+        signals();
+        auto port = number(option(argc, argv, "--port", "8081"), 1, 65535);
+        auto threads = number(option(argc, argv, "--threads", "8"), 1, 64);
+        auto capacity = number(option(argc, argv, "--capacity", "500000"), 1, 100000000);
+        auto lease = number(option(argc, argv, "--lease-seconds", "30"), 1, 3600);
+        log_queue::SqliteQueue queue(option(argc, argv, "--db", "data/queue.db"), capacity, lease);
+        httplib::Server server;
+        server.new_task_queue = [threads] { return new httplib::ThreadPool(threads); };
+        server.set_payload_max_length(8 * 1024 * 1024);
+        server.set_read_timeout(10, 0);
+        server.set_write_timeout(10, 0);
+        server.set_exception_handler(
+            [](const httplib::Request &, httplib::Response &response, std::exception_ptr error) {
                 try {
-                    port = std::stoi(argv[++i]);
-                    if (port < 1 || port > 65535) {
-                        std::cerr << "Error: Port must be between 1 and 65535" << std::endl;
-                        return 1;
-                    }
-                } catch (const std::exception&) {
-                    std::cerr << "Error: Invalid port number" << std::endl;
-                    return 1;
+                    std::rethrow_exception(error);
+                } catch (const std::exception &e) {
+                    std::cerr << e.what() << std::endl;
                 }
-            } else if (arg == "--db") {
-                if (i + 1 >= argc) {
-                    std::cerr << "Error: --db requires a value" << std::endl;
-                    return 1;
-                }
-                dbPath = argv[++i];
-                
-                // Validate path to prevent path traversal
-                if (!isPathSafe(dbPath)) {
-                    std::cerr << "Error: Database path must be within current directory and not contain '..'" << std::endl;
-                    return 1;
-                }
-            } else if (arg == "--help") {
-                std::cout << "Usage: " << argv[0] << " [options]\n"
-                          << "Options:\n"
-                          << "  --port <n>    Port to listen on (default: 8080)\n"
-                          << "  --db <path>   Database file path (default: ./data/queue.db)\n"
-                          << "  --help        Show this message\n";
-                return 0;
-            } else {
-                std::cerr << "Unknown option: " << arg << std::endl;
-                return 1;
-            }
-        }
-        
-        std::cout << "Log Queue Starting..." << std::endl;
-        std::cout << "  Port: " << port << std::endl;
-        std::cout << "  Database: " << dbPath << std::endl;
-        
-        // Set up signal handlers
-        if (std::signal(SIGINT, signalHandler) == SIG_ERR) {
-            std::cerr << "Failed to install SIGINT handler" << std::endl;
-            return 1;
-        }
-        if (std::signal(SIGTERM, signalHandler) == SIG_ERR) {
-            std::cerr << "Failed to install SIGTERM handler" << std::endl;
-            return 1;
-        }
-        
-        // Create queue
-        log_queue::SqliteQueue queue(dbPath);
-        
-        // Create HTTP server with handlers
-        log_queue::HttpServer server(port, 
-            [&queue](const std::string& method, const std::string& path, const std::string& body) 
-            -> std::string {
-                // POST /api/logs/batch - Enqueue
-                if (method == "POST" && path == "/api/logs/batch") {
-                    try {
-                        // Parse JSON array using nlohmann/json
-                        auto j = nlohmann::json::parse(body);
-                        
-                        // Validate array size to prevent DoS
-                        if (!j.is_array()) {
-                            return "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 18\r\n\r\nExpected JSON array";
-                        }
-                        
-                        if (j.size() > MAX_JSON_BATCH_SIZE) {
-                            return "HTTP/1.1 413 Payload Too Large\r\nContent-Type: text/plain\r\nContent-Length: 20\r\n\r\nBatch size too large";
-                        }
-                        
-                        std::vector<std::string> batch;
-                        batch.reserve(j.size());  // Pre-allocate to avoid reallocations
-                        
-                        for (const auto& item : j) {
-                            if (item.is_string()) {
-                                batch.push_back(item.get<std::string>());
-                            }
-                        }
-                        
-                        if (queue.enqueue(batch)) {
-                            return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK";
-                        } else {
-                            return "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nError";
-                        }
-                    } catch (const nlohmann::json::exception& e) {
-                        return "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\nContent-Length: 12\r\n\r\nInvalid JSON";
-                    }
-                }
-                
-                // GET /api/logs/pending - Dequeue
-                if (method == "GET" && path == "/api/logs/pending") {
-                    auto result = queue.dequeue(100);
-                    if (result && !result->empty()) {
-                        // Build JSON response using nlohmann/json (safe escaping)
-                        nlohmann::json response_json = *result;
-                        std::string response_body = response_json.dump();
-                        
-                        std::ostringstream response;
-                        response << "HTTP/1.1 200 OK\r\n"
-                                 << "Content-Type: application/json\r\n"
-                                 << "Content-Length: " << response_body.length() << "\r\n"
-                                 << "\r\n" << response_body;
-                        return response.str();
-                    } else {
-                        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]";
-                    }
-                }
-                
-                // GET /api/queue/stats - Queue metrics
-                if (method == "GET" && path == "/api/queue/stats") {
-                    size_t pending = queue.getPendingCount();
-                    size_t total = queue.getTotalCount();
-                    
-                    nlohmann::json stats;
-                    stats["pending"] = pending;
-                    stats["total"] = total;
-                    std::string bodyStr = stats.dump();
-                    
-                    std::ostringstream response;
-                    response << "HTTP/1.1 200 OK\r\n"
-                             << "Content-Type: application/json\r\n"
-                             << "Content-Length: " << bodyStr.length() << "\r\n"
-                             << "\r\n" << bodyStr;
-                    return response.str();
-                }
-                
-                // 404 Not Found
-                return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\n\r\nNot Found";
-            }
-        );
-        
-        // Start server
-        server.start();
-        
-        std::cout << "Queue is running. Press Ctrl+C to stop." << std::endl;
-        
-        // Cleanup thread
-        std::atomic<bool> cleanup_running{true};
-        std::thread cleanup_thread([&queue, &cleanup_running]() {
-            while (cleanup_running.load()) {
-                std::this_thread::sleep_for(kCleanupInterval);
-                queue.cleanupProcessed(24);  // Clean up messages older than 24 hours
-            }
+                response.status = 500;
+                response.set_content("{\"error\":\"Queue operation failed\"}", "application/json");
+            });
+        server.Get("/health", [](const httplib::Request &, httplib::Response &res) {
+            res.set_content("{\"status\":\"ok\"}", "application/json");
         });
-        
-        // Main loop
-        while (!g_shutdown_requested) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        
-        // Shutdown
-        std::cout << "\nShutting down..." << std::endl;
-        cleanup_running.store(false);
-        server.stop();
-        cleanup_thread.join();
-        
-        std::cout << "Queue stopped." << std::endl;
+        server.Get("/api/queue/stats", [&](const httplib::Request &, httplib::Response &res) {
+            res.set_content(queue.stats().dump(), "application/json");
+        });
+        server.Post("/api/logs/batch", [&](const httplib::Request &req, httplib::Response &res) {
+            auto value = json::parse(req.body, nullptr, false);
+            if (!value.is_object() || !value.contains("id") || !value["id"].is_string() ||
+                value["id"].get_ref<const std::string &>().empty() ||
+                value["id"].get_ref<const std::string &>().size() > 256 ||
+                !value.contains("logs") || !value["logs"].is_array() || value["logs"].empty() ||
+                value["logs"].size() > 4096) {
+                res.status = 400;
+                res.set_content("{\"error\":\"Expected batch id and 1–4096 log objects\"}",
+                                "application/json");
+                return;
+            }
+            for (const auto &entry : value["logs"]) {
+                if (!entry.is_object() || !entry.contains("message") ||
+                    !entry["message"].is_string() ||
+                    entry["message"].get_ref<const std::string &>().size() > 10000 ||
+                    (entry.contains("source") &&
+                     (!entry["source"].is_string() ||
+                      entry["source"].get_ref<const std::string &>().size() > 500))) {
+                    res.status = 400;
+                    res.set_content("{\"error\":\"Invalid log object\"}", "application/json");
+                    return;
+                }
+            }
+            res.status = queue.enqueue(value["id"], value["logs"]);
+            res.set_content(
+                json({{"accepted", res.status < 300}, {"duplicate", res.status == 200}}).dump(),
+                "application/json");
+        });
+        server.Get("/api/logs/pending", [&](const httplib::Request &, httplib::Response &res) {
+            res.set_content(queue.claim(4), "application/json");
+        });
+        server.Post("/api/logs/ack", [&](const httplib::Request &req, httplib::Response &res) {
+            auto value = json::parse(req.body, nullptr, false);
+            if (!value.is_object() || !value.contains("leases") || !value["leases"].is_array() ||
+                value["leases"].size() > 64) {
+                res.status = 400;
+                res.set_content("{}", "application/json");
+                return;
+            }
+            for (const auto &item : value["leases"])
+                if (!item.is_object() || !item.contains("id") || !item["id"].is_string() ||
+                    !item.contains("lease") || !item["lease"].is_string()) {
+                    res.status = 400;
+                    res.set_content("{}", "application/json");
+                    return;
+                }
+            res.set_content(json({{"acknowledged", queue.acknowledge(value["leases"])}}).dump(),
+                            "application/json");
+        });
+        auto host = option(argc, argv, "--host", "127.0.0.1");
+        if (!server.bind_to_port(host, port))
+            throw std::runtime_error("Queue port is busy");
+        std::thread watcher([&] {
+            while (!stopped)
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            server.stop();
+        });
+        std::cout << "Durable queue listening on " << host << ":" << port << std::endl;
+        server.listen_after_bind();
+        stopped = 1;
+        watcher.join();
         return 0;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
+    } catch (const std::exception &error) {
+        std::cerr << error.what() << std::endl;
         return 1;
     }
 }

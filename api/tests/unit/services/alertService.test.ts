@@ -15,8 +15,9 @@ const mockLogRepo = {
   insert: jest.fn(),
   insertBatch: jest.fn(),
   search: jest.fn(),
+  searchPage: jest.fn().mockReturnValue({logs: [{id: 'retained-evidence'}]}),
   getById: jest.fn(),
-  getRecent: jest.fn(),
+  getRecent: jest.fn().mockReturnValue([{ id: 'retained-evidence' }]),
   getStats: jest.fn(),
   deleteOldLogs: jest.fn(),
   getErrorCountSince: jest.fn().mockReturnValue(0)

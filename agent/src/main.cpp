@@ -1,252 +1,174 @@
-#include <atomic>
-#include <chrono>
-#include <csignal>
-#include <ctime>
-#include <iostream>
-#include <memory>
-#include <string>
-#include <thread>
-#include <vector>
-
-#include <nlohmann/json.hpp>
-
-#include "batcher.hpp"
-#include "file_tailer.hpp"
+#include "../../native/include/common.hpp"
 #include "log_parser.hpp"
-#include "queue_client.hpp"
-
-namespace {
-    // Signal-safe flag for shutdown
-    volatile sig_atomic_t g_shutdown_requested = 0;
-    
-    constexpr auto kPollInterval = std::chrono::milliseconds(100);
-    
-    void signalHandler(int) {
-        g_shutdown_requested = 1;
-    }
-    
-    void printUsage(const char* programName) {
-        std::cout << "Usage: " << programName << " [options]\n"
-                  << "Options:\n"
-                  << "  --file <path>         Log file to tail (required)\n"
-                  << "  --queue-host <host>   Queue server host (default: localhost)\n"
-                  << "  --queue-port <port>   Queue server port (default: 8080)\n"
-                  << "  --batch-size <n>      Batch size (default: 100)\n"
-                  << "  --flush-interval <ms> Flush interval in ms (default: 1000)\n"
-                  << "  -h, --help           Show this help message\n";
-    }
-    
-    struct Config {
-        std::string log_file;
-        std::string queue_host = "localhost";
-        int queue_port = 8080;
-        size_t batch_size = 100;
-        std::chrono::milliseconds flush_interval{1000};
-    };
-    
-    Config parseArgs(int argc, char* argv[]) {
-        Config config;
-        
-        for (int i = 1; i < argc; ++i) {
-            std::string arg = argv[i];
-            
-            if (arg == "-h" || arg == "--help") {
-                printUsage(argv[0]);
-                exit(0);
-            } else if (arg == "--file") {
-                if (i + 1 >= argc || argv[i + 1][0] == '-') {
-                    std::cerr << "Error: --file requires a value" << std::endl;
-                    exit(1);
-                }
-                config.log_file = argv[++i];
-            } else if (arg == "--queue-host") {
-                if (i + 1 >= argc || argv[i + 1][0] == '-') {
-                    std::cerr << "Error: --queue-host requires a value" << std::endl;
-                    exit(1);
-                }
-                config.queue_host = argv[++i];
-            } else if (arg == "--queue-port") {
-                if (i + 1 >= argc || argv[i + 1][0] == '-') {
-                    std::cerr << "Error: --queue-port requires a value" << std::endl;
-                    exit(1);
-                }
-                try {
-                    config.queue_port = std::stoi(argv[++i]);
-                    if (config.queue_port < 1 || config.queue_port > 65535) {
-                        std::cerr << "Error: Port must be between 1 and 65535" << std::endl;
-                        exit(1);
-                    }
-                } catch (const std::exception&) {
-                    std::cerr << "Error: Invalid port number: " << argv[i] << std::endl;
-                    exit(1);
-                }
-            } else if (arg == "--batch-size") {
-                if (i + 1 >= argc || argv[i + 1][0] == '-') {
-                    std::cerr << "Error: --batch-size requires a value" << std::endl;
-                    exit(1);
-                }
-                try {
-                    config.batch_size = std::stoul(argv[++i]);
-                } catch (const std::exception&) {
-                    std::cerr << "Error: Invalid batch size: " << argv[i] << std::endl;
-                    exit(1);
-                }
-            } else if (arg == "--flush-interval") {
-                if (i + 1 >= argc || argv[i + 1][0] == '-') {
-                    std::cerr << "Error: --flush-interval requires a value" << std::endl;
-                    exit(1);
-                }
-                try {
-                    config.flush_interval = std::chrono::milliseconds(std::stoul(argv[++i]));
-                } catch (const std::exception&) {
-                    std::cerr << "Error: Invalid flush interval: " << argv[i] << std::endl;
-                    exit(1);
-                }
-            } else {
-                std::cerr << "Unknown option: " << arg << std::endl;
-                printUsage(argv[0]);
-                exit(1);
-            }
-        }
-        
-        return config;
-    }
-    
-    // Thread-safe time formatting
-    std::string formatTimestamp(std::chrono::system_clock::time_point tp) {
-        auto time_t = std::chrono::system_clock::to_time_t(tp);
-        char time_str[100];
-        
-        #ifdef _WIN32
-            std::tm time_info;
-            localtime_s(&time_info, &time_t);
-            std::strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%S", &time_info);
-        #else
-            std::tm time_info;
-            localtime_r(&time_t, &time_info);
-            std::strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%S", &time_info);
-        #endif
-        
-        return std::string(time_str);
-    }
+#include <httplib.h>
+#include <sys/stat.h>
+using namespace pipeline;
+std::string source_key(const std::filesystem::path &file) {
+#ifdef _WIN32
+    HANDLE handle = CreateFileW(file.c_str(), GENERIC_READ,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("Cannot open source");
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool ok = GetFileInformationByHandle(handle, &info);
+    CloseHandle(handle);
+    if (!ok)
+        throw std::runtime_error("Cannot identify source");
+    return fingerprint(std::filesystem::absolute(file).generic_string() + ":" +
+                       std::to_string(info.dwVolumeSerialNumber) + ":" +
+                       std::to_string(info.nFileIndexHigh) + ":" +
+                       std::to_string(info.nFileIndexLow));
+#else
+    struct stat info{};
+    if (::stat(file.c_str(), &info) != 0)
+        throw std::runtime_error("Cannot stat source");
+#endif
+#ifndef _WIN32
+    return fingerprint(std::filesystem::absolute(file).generic_string() + ":" +
+                       std::to_string(info.st_dev) + ":" + std::to_string(info.st_ino));
+#endif
 }
-
-int main(int argc, char* argv[]) {
+int main(int argc, char **argv) {
     try {
-        // Parse command line arguments
-        Config config = parseArgs(argc, argv);
-        
-        if (config.log_file.empty()) {
-            std::cerr << "Error: --file is required" << std::endl;
-            printUsage(argv[0]);
-            return 1;
+        signals();
+        std::filesystem::path file = option(argc, argv, "--file", "data/events.ndjson");
+        std::filesystem::path checkpoint =
+            option(argc, argv, "--checkpoint", file.string() + ".checkpoint.json");
+        auto port = number(option(argc, argv, "--queue-port", "8081"), 1, 65535);
+        auto batch_size = number(option(argc, argv, "--batch-size", "2048"), 1, 4096);
+        httplib::Client client(option(argc, argv, "--queue-host", "127.0.0.1"), port);
+        client.set_connection_timeout(1, 0);
+        client.set_read_timeout(5, 0);
+        client.set_write_timeout(5, 0);
+        uint64_t offset = 0, generation = 0;
+        std::string key;
+        if (std::filesystem::exists(checkpoint)) {
+            std::ifstream in(checkpoint);
+            auto state = json::parse(in);
+            offset = state.at("offset");
+            key = state.at("source");
+            generation = state.value("generation", 0ULL);
         }
-        
-        std::cout << "Log Agent Starting..." << std::endl;
-        std::cout << "  Log file: " << config.log_file << std::endl;
-        std::cout << "  Queue: " << config.queue_host << ":" << config.queue_port << std::endl;
-        std::cout << "  Batch size: " << config.batch_size << std::endl;
-        std::cout << "  Flush interval: " << config.flush_interval.count() << "ms" << std::endl;
-        
-        // Set up signal handlers
-        if (std::signal(SIGINT, signalHandler) == SIG_ERR) {
-            std::cerr << "Failed to install SIGINT handler" << std::endl;
-            return 1;
-        }
-        if (std::signal(SIGTERM, signalHandler) == SIG_ERR) {
-            std::cerr << "Failed to install SIGTERM handler" << std::endl;
-            return 1;
-        }
-        
-        // Create queue client
-        log_agent::QueueClient queue_client(config.queue_host, config.queue_port);
-        
-        // Create batcher with callback to send to queue
-        // Note: Lambda captures by reference are safe because Batcher doesn't store
-        // the callback for async execution - it only calls it synchronously from its
-        // own internal thread or from flush()
-        std::unique_ptr<log_agent::Batcher> batcher = std::make_unique<log_agent::Batcher>(
-            config.batch_size,
-            config.flush_interval,
-            [&queue_client](const std::vector<std::string>& batch) {
-                if (!batch.empty()) {
-                    std::cout << "Sending batch of " << batch.size() << " logs" << std::endl;
-                    if (!queue_client.send(batch)) {
-                        std::cerr << "Failed to send batch to queue" << std::endl;
-                    }
-                }
+        auto last_flush = std::chrono::steady_clock::now();
+        while (!stopped) {
+            if (!std::filesystem::exists(file)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
             }
-        );
-        
-        // Create log parser
-        log_agent::LogParser parser;
-        
-        // Create file tailer
-        // Note: Lambda captures by reference are safe because FileTailer only calls
-        // the callback synchronously from its internal thread
-        std::unique_ptr<log_agent::FileTailer> tailer = std::make_unique<log_agent::FileTailer>(
-            config.log_file,
-            [&parser, &batcher, &config](const std::string& line) {
-                try {
-                    // Parse the log line
-                    auto entry = parser.parse(line);
-                    if (entry) {
-                        // Convert to JSON and add to batcher
-                        nlohmann::json json_entry;
-                        json_entry["message"] = entry->message;
-                        json_entry["level"] = entry->level;
-                        json_entry["source"] = entry->source;
-                        json_entry["timestamp"] = formatTimestamp(entry->timestamp);
-                        
-                        if (entry->raw) {
-                            json_entry["raw"] = *entry->raw;
-                        }
-                        
-                        batcher->add(json_entry.dump());
-                    } else {
-                        // If parsing failed, send raw line
-                        nlohmann::json json_entry;
-                        json_entry["message"] = line;
-                        json_entry["level"] = "unknown";
-                        json_entry["source"] = config.log_file;
-                        json_entry["timestamp"] = formatTimestamp(std::chrono::system_clock::now());
-                        
-                        batcher->add(json_entry.dump());
-                    }
-                } catch (const std::exception& e) {
-                    std::cerr << "Error processing log line: " << e.what() << std::endl;
-                }
+            auto current_key = source_key(file);
+            auto size = std::filesystem::file_size(file);
+            if (current_key != key) {
+                key = current_key;
+                offset = 0;
+                generation = 0;
             }
-        );
-        
-        // Start the tailer
-        tailer->start();
-        
-        std::cout << "Agent is running. Press Ctrl+C to stop." << std::endl;
-        
-        // Main loop - wait for shutdown signal
-        while (!g_shutdown_requested) {
-            std::this_thread::sleep_for(kPollInterval);
+            if (size < offset) {
+                offset = 0;
+                ++generation;
+            }
+            if (size == offset) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                continue;
+            }
+            if (size - offset < 512 * 1024 &&
+                std::chrono::steady_clock::now() - last_flush < std::chrono::milliseconds(100)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            std::ifstream in(file, std::ios::binary);
+            in.seekg(static_cast<std::streamoff>(offset));
+            std::string buffer(
+                static_cast<size_t>(std::min<uint64_t>(2 * 1024 * 1024, size - offset)), '\0');
+            in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+            buffer.resize(static_cast<size_t>(in.gcount()));
+            if (!in && !in.eof())
+                throw std::runtime_error("Source read failed");
+            std::string log_body = "[";
+            unsigned log_count = 0;
+            size_t cursor = 0;
+            uint64_t end = offset;
+            while (log_count < batch_size) {
+                auto newline = buffer.find('\n', cursor);
+                if (newline == std::string::npos)
+                    break;
+                auto line = buffer.substr(cursor, newline - cursor);
+                if (line.size() > 1024 * 1024)
+                    throw std::runtime_error("Source line exceeds 1 MiB; checkpoint unchanged");
+                if (!line.empty() && line.back() == '\r')
+                    line.pop_back();
+                if (!line.empty()) {
+                    auto entry = json::parse(line, nullptr, false);
+                    if (!entry.is_object()) {
+                        auto parsed = log_agent::LogParser{}.parse(line);
+                        entry = {{"message", parsed ? parsed->message : line},
+                                 {"level", parsed ? parsed->level : "info"},
+                                 {"source", file.filename().string()}};
+                        if (parsed)
+                            entry["timestamp"] =
+                                std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    parsed->timestamp.time_since_epoch())
+                                    .count();
+                    }
+                    log_agent::LogParser{}.normalizeJson(entry);
+                    if (!entry.contains("message") || !entry["message"].is_string())
+                        entry["message"] = line;
+                    if (!entry.contains("source"))
+                        entry["source"] = file.filename().string();
+                    if (!entry.contains("id") || !entry["id"].is_string() ||
+                        entry["id"].get_ref<const std::string &>().empty())
+                        entry["id"] = fingerprint(key + ":" + std::to_string(generation) + ":" +
+                                                  std::to_string(offset + cursor) + ":" + line);
+                    if (!entry.contains("raw"))
+                        entry["raw"] = line;
+                    auto encoded = entry.dump();
+                    if (log_count && log_body.size() + encoded.size() > 6 * 1024 * 1024)
+                        break;
+                    if (log_count)
+                        log_body += ",";
+                    log_body += encoded;
+                    ++log_count;
+                }
+                cursor = newline + 1;
+                end = offset + cursor;
+            }
+            if (end == offset) {
+                if (buffer.size() > 1024 * 1024)
+                    throw std::runtime_error(
+                        "Incomplete source line exceeds 1 MiB; checkpoint unchanged");
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+                continue;
+            }
+            if (log_count) {
+                log_body += "]";
+                auto id = fingerprint(key + ":" + std::to_string(offset) + ":" +
+                                      std::to_string(end) + ":" + log_body);
+                auto payload = "{\"id\":" + json(id).dump() + ",\"logs\":" + log_body + "}";
+                bool accepted = false;
+                while (!stopped) {
+                    auto response = client.Post("/api/logs/batch", payload, "application/json");
+                    if (response && response->status >= 200 && response->status < 300) {
+                        accepted = true;
+                        break;
+                    }
+                    if (response && (response->status == 400 || response->status == 409 ||
+                                     response->status == 413))
+                        throw std::runtime_error(
+                            "Queue rejected source batch; checkpoint unchanged: " + response->body);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                if (!accepted)
+                    break;
+            }
+            atomic_write(
+                checkpoint,
+                json({{"offset", end}, {"source", key}, {"generation", generation}}).dump());
+            offset = end;
+            last_flush = std::chrono::steady_clock::now();
         }
-        
-        // Shutdown gracefully
-        std::cout << "\nShutting down..." << std::endl;
-        
-        // Stop the tailer (this will flush incomplete line)
-        tailer->stop();
-        tailer.reset();
-        
-        // Flush any remaining batch
-        if (batcher) {
-            batcher->flush();
-            batcher.reset();
-        }
-        
-        std::cout << "Agent stopped." << std::endl;
         return 0;
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Fatal error: " << e.what() << std::endl;
+    } catch (const std::exception &error) {
+        std::cerr << error.what() << std::endl;
         return 1;
     }
 }

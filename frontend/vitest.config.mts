@@ -1,0 +1,12 @@
+import { defineConfig } from 'vitest/config';
+export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic' } },
+  test: {
+    environment: 'jsdom',
+    include: ['tests/**/*.test.{ts,tsx}'],
+    setupFiles: ['tests/setup.ts'],
+    clearMocks: true,
+    maxWorkers: 2,
+    environmentOptions: { jsdom: { url: 'http://localhost/' } },
+  },
+});

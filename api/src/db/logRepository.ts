@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
 import { LogEntry, SearchParams, LogStats } from '../types/log';
+import { readLogPage } from './logPageReader';
 
 export class LogRepository {
   private db: Database.Database;
+  private delivered = new Map<number, Database.Statement>();
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -45,9 +47,46 @@ export class LogRepository {
       END;
       
       CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
+      DROP INDEX IF EXISTS idx_logs_time_row;
+      CREATE INDEX IF NOT EXISTS idx_logs_source_time ON logs(source,timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_logs_level_time ON logs(level,timestamp DESC);
       CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
       CREATE INDEX IF NOT EXISTS idx_logs_source ON logs(source);
     `);
+  }
+
+  searchPage(params: SearchParams & { cursor?: string }) {
+    return readLogPage(this.db, params);
+  }
+
+  count(): number {
+    return (this.db.prepare('SELECT COUNT(*) n FROM logs').get() as { n: number }).n;
+  }
+
+  insertDeliveredBatch(entries: LogEntry[]): number {
+    let added = 0;
+    for (let offset = 0; offset < entries.length; offset += 128) {
+      const chunk = entries.slice(offset, offset + 128);
+      let stmt = this.delivered.get(chunk.length);
+      if (!stmt) {
+        stmt = this.db.prepare(
+          'INSERT OR IGNORE INTO logs(id,timestamp,level,source,message,raw) VALUES ' +
+            chunk.map(() => '(?,?,?,?,?,?)').join(','),
+        );
+        this.delivered.set(chunk.length, stmt);
+      }
+      added += stmt.run(
+        ...chunk.flatMap((entry) => [
+          entry.id,
+          entry.timestamp,
+          entry.level,
+          entry.source,
+          entry.message,
+          entry.raw ?? null,
+        ]),
+      ).changes;
+    }
+    return added;
   }
 
   insert(entry: LogEntry): void {
@@ -61,7 +100,7 @@ export class LogRepository {
       entry.level,
       entry.source,
       entry.message,
-      entry.raw || null
+      entry.raw || null,
     );
   }
 
@@ -72,7 +111,7 @@ export class LogRepository {
       INSERT INTO logs (id, timestamp, level, source, message, raw)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    
+
     const transaction = this.db.transaction((items: LogEntry[]) => {
       for (const entry of items) {
         insertStmt.run(
@@ -81,12 +120,12 @@ export class LogRepository {
           entry.level,
           entry.source,
           entry.message,
-          entry.raw || null
+          entry.raw || null,
         );
       }
       return items.length;
     });
-    
+
     return transaction(entries);
   }
 
@@ -129,20 +168,20 @@ export class LogRepository {
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-    
+
     // Build count query using same conditions but without limit/offset
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM logs 
       ${whereClause}
     `;
-    
+
     const countResult = this.db.prepare(countQuery).get(...countValues) as { total: number };
     const total = countResult?.total || 0;
 
     const limit = Math.min(Math.max(params.limit || 50, 1), 1000);
     const offset = Math.max(params.offset || 0, 0);
-    
+
     const query = `
       SELECT id, timestamp, level, source, message, raw
       FROM logs
@@ -150,9 +189,9 @@ export class LogRepository {
       ORDER BY timestamp DESC
       LIMIT ? OFFSET ?
     `;
-    
+
     values.push(limit, offset);
-    
+
     const stmt = this.db.prepare(query);
     const rows = stmt.all(...values) as Array<{
       id: string;
@@ -163,13 +202,13 @@ export class LogRepository {
       raw: string | null;
     }>;
 
-    const logs: LogEntry[] = rows.map(row => ({
+    const logs: LogEntry[] = rows.map((row) => ({
       id: row.id,
       timestamp: row.timestamp,
       level: row.level as LogEntry['level'],
       source: row.source,
       message: row.message,
-      raw: row.raw || undefined
+      raw: row.raw || undefined,
     }));
 
     return { logs, total };
@@ -179,18 +218,20 @@ export class LogRepository {
     // Clamp hours to a reasonable range (1 hour to 1 year)
     const clampedHours = Math.min(Math.max(hours, 1), 8760);
     const since = new Date(Date.now() - clampedHours * 60 * 60 * 1000).toISOString();
-    
-    const totalResult = this.db.prepare(
-      'SELECT COUNT(*) as count FROM logs WHERE timestamp >= ?'
-    ).get(since) as { count: number };
-    
-    const levelStats = this.db.prepare(
-      'SELECT level, COUNT(*) as count FROM logs WHERE timestamp >= ? GROUP BY level'
-    ).all(since) as Array<{ level: string; count: number }>;
-    
-    const sourceStats = this.db.prepare(
-      'SELECT source, COUNT(*) as count FROM logs WHERE timestamp >= ? GROUP BY source ORDER BY count DESC LIMIT 100'
-    ).all(since) as Array<{ source: string; count: number }>;
+
+    const totalResult = this.db
+      .prepare('SELECT COUNT(*) as count FROM logs WHERE timestamp >= ?')
+      .get(since) as { count: number };
+
+    const levelStats = this.db
+      .prepare('SELECT level, COUNT(*) as count FROM logs WHERE timestamp >= ? GROUP BY level')
+      .all(since) as Array<{ level: string; count: number }>;
+
+    const sourceStats = this.db
+      .prepare(
+        'SELECT source, COUNT(*) as count FROM logs WHERE timestamp >= ? GROUP BY source ORDER BY count DESC LIMIT 100',
+      )
+      .all(since) as Array<{ source: string; count: number }>;
 
     const byLevel: Record<string, number> = {};
     const bySource: Record<string, number> = {};
@@ -206,31 +247,31 @@ export class LogRepository {
     return {
       total: totalResult.count,
       byLevel,
-      bySource
+      bySource,
     };
   }
 
   deleteOldLogs(days: number): number {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
-    
-    const result = this.db.prepare(
-      'DELETE FROM logs WHERE timestamp < ?'
-    ).run(cutoff);
-    
+
+    const result = this.db.prepare('DELETE FROM logs WHERE timestamp < ?').run(cutoff);
+
     return result.changes;
   }
 
   getById(id: string): LogEntry | null {
-    const row = this.db.prepare(
-      'SELECT id, timestamp, level, source, message, raw FROM logs WHERE id = ?'
-    ).get(id) as {
-      id: string;
-      timestamp: string;
-      level: string;
-      source: string;
-      message: string;
-      raw: string | null;
-    } | undefined;
+    const row = this.db
+      .prepare('SELECT id, timestamp, level, source, message, raw FROM logs WHERE id = ?')
+      .get(id) as
+      | {
+          id: string;
+          timestamp: string;
+          level: string;
+          source: string;
+          message: string;
+          raw: string | null;
+        }
+      | undefined;
 
     if (!row) return null;
 
@@ -240,14 +281,16 @@ export class LogRepository {
       level: row.level as LogEntry['level'],
       source: row.source,
       message: row.message,
-      raw: row.raw || undefined
+      raw: row.raw || undefined,
     };
   }
 
   getRecent(limit: number): LogEntry[] {
-    const rows = this.db.prepare(
-      'SELECT id, timestamp, level, source, message, raw FROM logs ORDER BY timestamp DESC LIMIT ?'
-    ).all(limit) as Array<{
+    const rows = this.db
+      .prepare(
+        'SELECT id, timestamp, level, source, message, raw FROM logs ORDER BY timestamp DESC LIMIT ?',
+      )
+      .all(limit) as Array<{
       id: string;
       timestamp: string;
       level: string;
@@ -256,21 +299,24 @@ export class LogRepository {
       raw: string | null;
     }>;
 
-    return rows.map(row => ({
+    return rows.map((row) => ({
       id: row.id,
       timestamp: row.timestamp,
       level: row.level as LogEntry['level'],
       source: row.source,
       message: row.message,
-      raw: row.raw || undefined
+      raw: row.raw || undefined,
     }));
   }
 
-  getErrorCountSince(since: string, level: string = 'error'): number {
-    const result = this.db.prepare(
-      'SELECT COUNT(*) as count FROM logs WHERE level = ? AND timestamp >= ?'
-    ).get(level, since) as { count: number };
-    
+  getErrorCountSince(since: string, level: string = 'error', until?: string): number {
+    const result = this.db
+      .prepare(
+        'SELECT COUNT(*) as count FROM logs WHERE level = ? AND timestamp >= ?' +
+          (until ? ' AND timestamp <= ?' : ''),
+      )
+      .get(...(until ? [level, since, until] : [level, since])) as { count: number };
+
     return result.count;
   }
 }

@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'node:crypto';
 import { LogEntry, Alert } from '../../src/types/log';
 
 const TEST_DB_DIR = path.join(__dirname, '..', '.test-data');
